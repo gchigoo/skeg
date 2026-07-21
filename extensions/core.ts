@@ -156,8 +156,10 @@ export default function (pi: ExtensionAPI) {
     return undefined;
   });
 
-  pi.on('tool_result', async (event) => {
+  pi.on('tool_result', async (event, ctx) => {
     if (!isOpenRun(run)) return undefined;
+    // 同 turn 内 agent 改过 config.json 时，立即用新 checks.commands 记账
+    reloadConfig(ctx.cwd);
 
     const tool = event.toolName.toLowerCase();
     if (tool === 'write' || tool === 'edit') {

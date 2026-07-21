@@ -31,6 +31,7 @@ describe('classifyCheckCommand', () => {
       'pytest tests/test_auth.py',
       'go test ./pkg/auth',
       'node --test tests/http-client.js',
+      'node --experimental-strip-types --test src/paths.test.ts',
     ]) {
       const hit = classifyCheckCommand(cmd, DEFAULT_CONFIG);
       assert.deepEqual(hit, { kind: 'command', name: 'targeted-test' }, cmd);
@@ -42,6 +43,16 @@ describe('classifyCheckCommand', () => {
       kind: 'command',
       name: 'test',
     });
+    assert.deepEqual(
+      classifyCheckCommand(
+        'node --experimental-strip-types --test',
+        DEFAULT_CONFIG,
+      ),
+      {
+        kind: 'command',
+        name: 'test',
+      },
+    );
   });
 
   it('classifies lint / typecheck / build', () => {

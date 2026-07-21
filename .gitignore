@@ -20,6 +20,7 @@ dogfood/PI_SMOKE.md
 dogfood/FRICTION.md
 dogfood/HOST_DOGFOOD.md
 dogfood/HOST_SCRATCH.md
+dogfood/events/
 .env.skeg-dogfood
 
 # personal-host dogfood profiles（自己项目路径/命令，本地-only）

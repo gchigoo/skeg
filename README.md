@@ -42,7 +42,7 @@ Prompt template:
 
 ## Status
 
-**v0.3.2 ready** — 扩大真实使用面：4 新宿主 profile + abandon/protected/auth 场景；`hasCliFlag` 修复 `--force`/`--abandon`；有机 run ≥ 12。
+**v0.3.3 ready** — 稳定性收束：host dogfood 唯一 marker 覆盖 protected/auth；`--dump-events`/`--repeat`；`node --experimental-strip-types --test` 启发式；同模型 3×13/13 + 跨模型 13/13。
 
 ```bash
 npm run verify

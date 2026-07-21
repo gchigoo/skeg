@@ -35,34 +35,36 @@
   "orientTest": "node --experimental-strip-types --test src/prove.test.ts",
   "edit": {
     "path": "dogfood/HOST_SCRATCH.md",
-    "needle": "skeg-dogfood-v032",
+    "needle": "{{marker}}",
     "work": [
       "Do exactly this and stop:",
       "1. Write/overwrite dogfood/HOST_SCRATCH.md with exactly these two lines:",
       "   # host scratch",
-      "   skeg-dogfood-v032",
-      "2. Run bash: node --experimental-strip-types --test src/paths.test.ts",
-      "3. Reply DONE."
+      "   {{marker}}",
+      "2. You MUST invoke the bash tool with exactly: node --experimental-strip-types --test src/paths.test.ts",
+      "3. Wait for the bash tool result. Do not skip the tool call.",
+      "4. Reply DONE only after bash completes."
     ],
     "recordAfter": "incident phase accounting heal | bash writes and agent_end git heal advance orient to change"
   },
   "protectedTouch": {
     "path": ".env.skeg-dogfood",
-    "content": "SKEG_DOGFOOD=1\n"
+    "content": "SKEG_DOGFOOD={{marker}}\n"
   },
   "authEdit": {
     "path": "dogfood/AUTH_SCRATCH.js",
-    "needle": "skeg-dogfood-auth-v032",
+    "needle": "{{marker}}",
     "work": [
       "Do exactly this and stop:",
       "1. Write/overwrite dogfood/AUTH_SCRATCH.js with exactly:",
-      "   // skeg-dogfood-auth-v032",
-      "   export const marker = 'skeg-dogfood-auth-v032';",
-      "2. Do not edit other files.",
-      "3. If a Skeg gate confirm appears, host will approve.",
-      "4. Reply DONE after the write/edit tool succeeds."
+      "   // {{marker}}",
+      "   export const marker = '{{marker}}';",
+      "2. You MUST perform a real write/edit even if a similar marker exists.",
+      "3. Do not edit other files.",
+      "4. If a Skeg gate confirm appears, host will approve.",
+      "5. Reply DONE after the write/edit tool succeeds."
     ]
   },
   "gitignoreEntries": [".skeg/", ".pi/", "dogfood/HOST_SCRATCH.md", ".env.skeg-dogfood"],
-  "dependencyMarker": "skeg-dogfood-v032"
+  "dependencyMarker": "skeg-dogfood-v033"
 }

@@ -1,6 +1,6 @@
 {
   "name": "skeg",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Minimal engineering workflow for coding agents. Stay light. Hold course.",
   "type": "module",
   "keywords": [

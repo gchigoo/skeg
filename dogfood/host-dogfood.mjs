@@ -6,6 +6,8 @@
  *   node dogfood/host-dogfood.mjs --cwd . --profile skeg
  *   node dogfood/host-dogfood.mjs --cwd <project> --profile ./dogfood/profiles/custom.json
  *   node dogfood/host-dogfood.mjs --cwd D:/Personal/Blog --profile Blog
+ *   node dogfood/host-dogfood.mjs --cwd . --profile skeg --dump-events
+ *   node dogfood/host-dogfood.mjs --cwd . --profile skeg --repeat 3 --dump-events
  */
 import { spawn } from 'node:child_process';
 import {
@@ -29,16 +31,60 @@ function flagValue(flag) {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
+/**
+ * @param {string} flag
+ * @returns {boolean}
+ */
+function hasFlag(flag) {
+  return args.includes(flag);
+}
+
 const cwdArg = flagValue('--cwd');
 if (!cwdArg) {
   console.error(
-    'Usage: node dogfood/host-dogfood.mjs --cwd <project> [--profile <name|path>]',
+    'Usage: node dogfood/host-dogfood.mjs --cwd <project> [--profile <name|path>] [--dump-events] [--repeat N]',
   );
   process.exit(2);
 }
 const HOST = resolve(cwdArg);
 const TIMEOUT_MS = 180_000;
 const MODEL = process.env.SKEG_SMOKE_MODEL || 'deepseek/deepseek-v4-flash';
+const DUMP_EVENTS = hasFlag('--dump-events');
+const REPEAT = Math.max(1, Number.parseInt(flagValue('--repeat') || '1', 10) || 1);
+const EVENTS_DIR = join(SKEG_ROOT, 'dogfood', 'events');
+
+/**
+ * 将 profile 中的 {{marker}} 替换为每轮唯一 token。
+ * @param {unknown} value
+ * @param {string} marker
+ * @returns {unknown}
+ */
+function applyMarker(value, marker) {
+  if (Array.isArray(value)) return value.map((v) => applyMarker(v, marker));
+  if (typeof value === 'string') return value.split('{{marker}}').join(marker);
+  if (value && typeof value === 'object') {
+    /** @type {Record<string, unknown>} */
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = applyMarker(v, marker);
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
+ * 确保字符串含本轮 marker（无 {{marker}} 模板时追加一行）。
+ * @param {string} text
+ * @param {string} marker
+ * @returns {string}
+ */
+function ensureMarker(text, marker) {
+  if (text.includes(marker)) return text;
+  if (text.includes('{{marker}}')) return applyMarker(text, marker);
+  const trimmed = text.replace(/\s+$/, '');
+  return `${trimmed}\nSKEG_MARKER=${marker}\n`;
+}
 
 /**
  * 解析 profile 路径：名称 → dogfood/profiles/<name>.json，或绝对/相对路径。
@@ -338,22 +384,59 @@ function buildScenarios(profile) {
   );
   // 每次跑用唯一 marker，避免上次残留导致 agent 跳过 edit、gate 不触发
   const marker = `${profile.dependencyMarker || 'skeg-dogfood'}-${Date.now().toString(36)}`;
-  const edit = profile.edit || {};
-  const protectedTouch = profile.protectedTouch || {
+  /** @type {any} */
+  const editRaw = profile.edit || {};
+  /** @type {any} */
+  const edit = applyMarker(
+    {
+      ...editRaw,
+      needle: editRaw.needle || '{{marker}}',
+      work: editRaw.work,
+    },
+    marker,
+  );
+  if (typeof edit.needle === 'string' && !edit.needle.includes(marker)) {
+    edit.needle = marker;
+  }
+  /** @type {any} */
+  const protectedRaw = profile.protectedTouch || {
     path: '.env.skeg-dogfood',
-    content: 'SKEG_DOGFOOD=1\n',
+    content: 'SKEG_DOGFOOD={{marker}}\n',
   };
-  const authEdit = profile.authEdit || {
+  const protectedTouch = {
+    path: protectedRaw.path || '.env.skeg-dogfood',
+    content: ensureMarker(
+      String(protectedRaw.content || 'SKEG_DOGFOOD={{marker}}\n'),
+      marker,
+    ),
+  };
+  /** @type {any} */
+  const authRaw = profile.authEdit || {
     path: '.skeg-dogfood/auth-scratch.js',
-    needle: 'skeg-dogfood-auth-v032',
+    needle: '{{marker}}',
     work: [
       'Do exactly this and stop:',
       '1. Write/overwrite .skeg-dogfood/auth-scratch.js with exactly:',
-      "   // skeg-dogfood-auth-v032",
-      "   export const marker = 'skeg-dogfood-auth-v032';",
-      '2. Reply DONE.',
+      '   // {{marker}}',
+      "   export const marker = '{{marker}}';",
+      '2. Do not edit other files.',
+      '3. If a Skeg gate confirm appears, host will approve.',
+      '4. Reply DONE after the write/edit tool succeeds.',
     ],
   };
+  const authEdit = /** @type {any} */ (applyMarker(authRaw, marker));
+  if (typeof authEdit.needle === 'string' && !String(authEdit.needle).includes(marker)) {
+    authEdit.needle = marker;
+  }
+  // 强制每轮写入：去掉「已存在则跳过」类措辞，避免静态残留导致 gate 漏触发
+  if (Array.isArray(authEdit.work)) {
+    authEdit.work = authEdit.work.map((line) =>
+      String(line).replace(
+        /If that line already exists[^.]*\./gi,
+        'You MUST perform a real write/edit even if a similar marker exists.',
+      ),
+    );
+  }
 
   return [
     {
@@ -401,9 +484,10 @@ function buildScenarios(profile) {
       intent: `Prove with targeted test: ${profile.targetedTest}`,
       work: [
         'Do exactly this and stop:',
-        `1. Run bash: ${profile.targetedTest}`,
-        '2. Do not edit files.',
-        '3. Reply DONE with the pass count.',
+        `1. You MUST invoke the bash tool with exactly: ${profile.targetedTest}`,
+        '2. Wait for the bash tool result. Do not skip the tool call.',
+        '3. Do not edit files.',
+        '4. Reply DONE with the pass count only after bash completes.',
       ].join('\n'),
       expect: { checkName: 'targeted-test' },
       finish: true,
@@ -413,9 +497,10 @@ function buildScenarios(profile) {
       intent: `Run full test suite: ${profile.fullTest}`,
       work: [
         'Do exactly this and stop:',
-        `1. Run bash: ${profile.fullTest}`,
-        '2. Do not edit files.',
-        '3. Reply DONE summarizing pass/fail.',
+        `1. You MUST invoke the bash tool with exactly: ${profile.fullTest}`,
+        '2. Wait for the bash tool result. Do not skip the tool call.',
+        '3. Do not edit files.',
+        '4. Reply DONE summarizing pass/fail only after bash completes.',
       ].join('\n'),
       expect: { checkName: 'test' },
       finish: true,
@@ -426,9 +511,10 @@ function buildScenarios(profile) {
       work: [
         'Do exactly this and stop:',
         `1. Read ${profile.orientRead} briefly.`,
-        `2. Run bash: ${profile.orientTest}`,
-        '3. Do not edit files.',
-        '4. Reply DONE.',
+        `2. You MUST invoke the bash tool with exactly: ${profile.orientTest}`,
+        '3. Wait for the bash tool result. Do not skip the tool call.',
+        '4. Do not edit files.',
+        '5. Reply DONE only after bash completes.',
       ].join('\n'),
       expect: { checkName: 'targeted-test' },
       finish: true,
@@ -438,9 +524,10 @@ function buildScenarios(profile) {
       intent: `Run ${profile.checkScript} and record evidence`,
       work: [
         'Do exactly this and stop:',
-        `1. Run bash: ${profile.checkScript}`,
-        '2. Do not edit files.',
-        '3. Reply DONE.',
+        `1. You MUST invoke the bash tool with exactly: ${profile.checkScript}`,
+        '2. Wait for the bash tool result. Do not skip the tool call.',
+        '3. Do not edit files.',
+        '4. Reply DONE only after bash completes.',
       ].join('\n'),
       expect: {
         checkName:
@@ -455,12 +542,19 @@ function buildScenarios(profile) {
     {
       id: 'df-07-edit-and-test',
       intent: `Edit ${edit.path || 'a source file'} and prove with targeted test`,
-      work: Array.isArray(edit.work)
-        ? edit.work.join('\n')
-        : String(edit.work || 'Reply DONE.'),
+      work: [
+        Array.isArray(edit.work)
+          ? edit.work.join('\n')
+          : String(edit.work || 'Reply DONE.'),
+        '',
+        'Hard rules:',
+        `- The written content MUST include the unique marker: ${marker}`,
+        '- You MUST run the targeted bash test via the bash tool and wait for its result.',
+        '- Do not skip write/edit or bash.',
+      ].join('\n'),
       expect: {
         fileIncludes: edit.path
-          ? [{ path: edit.path, needle: edit.needle || '' }]
+          ? [{ path: edit.path, needle: edit.needle || marker }]
           : [],
         checkName: 'targeted-test',
         phaseNotOrient: true,
@@ -572,13 +666,43 @@ function buildScenarios(profile) {
 }
 
 /**
+ * 将场景 RPC 事件流写入 dogfood/events/（归因用）。
+ * @param {number} round
+ * @param {string} scenarioId
+ * @param {RpcMsg[]} events
+ * @param {{ pass: boolean, frictions: string[] }} meta
+ */
+function dumpScenarioEvents(round, scenarioId, events, meta) {
+  if (!DUMP_EVENTS) return '';
+  mkdirSync(EVENTS_DIR, { recursive: true });
+  const path = join(EVENTS_DIR, `r${round}-${scenarioId}.jsonl`);
+  const lines = [
+    JSON.stringify({
+      type: 'meta',
+      round,
+      scenarioId,
+      pass: meta.pass,
+      frictions: meta.frictions,
+      model: MODEL,
+      host: HOST,
+      at: new Date().toISOString(),
+    }),
+    ...events.map((e) => JSON.stringify(e)),
+  ];
+  writeFileSync(path, `${lines.join('\n')}\n`, 'utf8');
+  return path;
+}
+
+/**
  * @param {PiRpc} pi
  * @param {Scenario} scenario
+ * @param {number} [round]
  */
-async function runScenario(pi, scenario) {
+async function runScenario(pi, scenario, round = 0) {
   /** @type {string[]} */
   const frictions = [];
   let pass = true;
+  const eventStart = pi.events.length;
 
   pi.notifies = [];
   pi.uiRequests = [];
@@ -711,7 +835,23 @@ async function runScenario(pi, scenario) {
     frictions.push('none|run completed as expected');
   }
 
-  return { id: scenario.id, intent: scenario.intent, pass, frictions, status };
+  const slice = pi.events.slice(eventStart);
+  const dumpPath = dumpScenarioEvents(round, scenario.id, slice, {
+    pass,
+    frictions,
+  });
+  if (dumpPath && !pass) {
+    console.log(`  events: ${dumpPath}`);
+  }
+
+  return {
+    id: scenario.id,
+    intent: scenario.intent,
+    pass,
+    frictions,
+    status,
+    dumpPath,
+  };
 }
 
 /**
@@ -812,17 +952,25 @@ function appendFriction(results, hostName, round) {
   return path;
 }
 
-async function main() {
-  if (!existsSync(HOST)) {
-    console.error(`Host not found: ${HOST}`);
-    process.exit(2);
-  }
+/**
+ * 跑一整轮 13 场景并追加 FRICTION Round。
+ * @returns {Promise<{ round: number, pass: boolean, results: Awaited<ReturnType<typeof runScenario>>[] }>}
+ */
+async function runOnce() {
   ensurePiPackage(HOST);
   const scenarios = buildScenarios(PROFILE);
+  const frictionPath = join(SKEG_ROOT, 'dogfood', 'FRICTION.md');
+  const prior = existsSync(frictionPath)
+    ? readFileSync(frictionPath, 'utf8')
+    : '';
+  const round = countRounds(prior) + 1;
+
   console.log(`Host:    ${HOST}`);
   console.log(`Skeg:    ${SKEG_ROOT}`);
   console.log(`Profile: ${PROFILE_PATH}`);
   console.log(`Model:   ${MODEL}`);
+  console.log(`Round:   ${round}`);
+  console.log(`Dump:    ${DUMP_EVENTS ? EVENTS_DIR : 'off'}`);
   console.log(`Scenarios: ${scenarios.length} (incl. abandon/protected/auth)`);
 
   const pi = new PiRpc(HOST);
@@ -840,7 +988,7 @@ async function main() {
   for (const scenario of scenarios) {
     console.log(`\n=== ${scenario.id} ===`);
     try {
-      const result = await runScenario(pi, scenario);
+      const result = await runScenario(pi, scenario, round);
       results.push(result);
       console.log(
         `${result.pass ? 'PASS' : 'FAIL'}  ${scenario.id} — ${result.frictions.join('; ').slice(0, 200)}`,
@@ -867,11 +1015,6 @@ async function main() {
   console.log(`\nRunState entries: ${runs.length}`);
   await pi.stop();
 
-  const frictionPath = join(SKEG_ROOT, 'dogfood', 'FRICTION.md');
-  const prior = existsSync(frictionPath)
-    ? readFileSync(frictionPath, 'utf8')
-    : '';
-  const round = countRounds(prior) + 1;
   const written = appendFriction(results, PROFILE.name || basename(HOST), round);
 
   const reportPath = join(SKEG_ROOT, 'dogfood', 'HOST_DOGFOOD.md');
@@ -885,6 +1028,7 @@ async function main() {
       `Profile: ${PROFILE_PATH}`,
       `Model: ${MODEL}`,
       `Round: ${round}`,
+      `Dump events: ${DUMP_EVENTS}`,
       `Result: ${results.every((r) => r.pass) ? 'PASS' : 'FAIL'}`,
       `Runs: ${results.length}`,
       `phase stayed orient: ${results.filter((r) => r.frictions.some((f) => /phase stayed orient/i.test(f))).length}`,
@@ -903,7 +1047,40 @@ async function main() {
 
   console.log(`\nAppended Round ${round} → ${written}`);
   console.log(`Wrote ${reportPath}`);
-  process.exit(results.every((r) => r.pass) ? 0 : 1);
+  return {
+    round,
+    pass: results.every((r) => r.pass),
+    results,
+  };
+}
+
+async function main() {
+  if (!existsSync(HOST)) {
+    console.error(`Host not found: ${HOST}`);
+    process.exit(2);
+  }
+
+  console.log(`Repeat:  ${REPEAT}`);
+  /** @type {Array<{ round: number, pass: boolean }>} */
+  const summaries = [];
+  for (let i = 0; i < REPEAT; i++) {
+    if (REPEAT > 1) {
+      console.log(`\n######## repeat ${i + 1}/${REPEAT} ########`);
+    }
+    const once = await runOnce();
+    summaries.push({ round: once.round, pass: once.pass });
+  }
+
+  if (REPEAT > 1) {
+    console.log('\n=== repeat summary ===');
+    for (const s of summaries) {
+      console.log(`Round ${s.round}: ${s.pass ? 'PASS' : 'FAIL'}`);
+    }
+    const ok = summaries.filter((s) => s.pass).length;
+    console.log(`${ok}/${summaries.length} rounds passed`);
+  }
+
+  process.exit(summaries.every((s) => s.pass) ? 0 : 1);
 }
 
 main().catch((err) => {
