@@ -1,0 +1,17 @@
+# dependencies & local runtime
+node_modules/
+dist/
+.pi/
+.skeg/
+*.log
+.DS_Store
+
+# local planning / background (not versioned yet)
+archive/
+DESIGN.md
+NON_GOALS.md
+CHANGELOG.md
+
+# generated dogfood / smoke reports
+dogfood/LAST_RUN.md
+dogfood/PI_SMOKE.md

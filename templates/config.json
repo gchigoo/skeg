@@ -1,0 +1,25 @@
+{
+  "defaultPolicy": "lean",
+  "protectedPaths": [".env*", "infra/prod/**"],
+  "migrationPaths": ["migrations/**", "**/migrations/**", "*.sql", "**/*.sql"],
+  "dependencyFiles": [
+    "package.json",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "bun.lock",
+    "bun.lockb"
+  ],
+  "authPaths": [],
+  "apiPaths": [],
+  "riskTriggers": {
+    "dependencyChange": "guarded",
+    "publicApiChange": "guarded",
+    "databaseMigration": "guarded",
+    "authChange": "guarded"
+  },
+  "checks": {
+    "default": ["targeted-test", "diff"],
+    "guarded": ["test", "typecheck", "lint", "diff"]
+  }
+}

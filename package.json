@@ -1,0 +1,47 @@
+{
+  "name": "skeg",
+  "version": "0.1.0",
+  "description": "Minimal engineering workflow for coding agents. Stay light. Hold course.",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "coding-agent",
+    "workflow"
+  ],
+  "license": "MIT",
+  "files": [
+    "extensions",
+    "prompts",
+    "src",
+    "templates",
+    "DESIGN.md",
+    "NON_GOALS.md",
+    "CHANGELOG.md",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/core.ts"
+    ],
+    "prompts": [
+      "./prompts"
+    ]
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test src/**/*.test.ts",
+    "dogfood": "node --experimental-strip-types dogfood/run.ts",
+    "smoke": "node dogfood/pi-smoke.mjs",
+    "check:budgets": "node scripts/check-budgets.mjs",
+    "check:loc": "node scripts/check-budgets.mjs --loc",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm test && npm run typecheck && npm run check:budgets && npm run dogfood"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.10",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.0"
+  }
+}
