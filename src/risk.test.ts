@@ -25,6 +25,26 @@ describe('detectPathRisks', () => {
     assert.equal(hits.some((h) => h.trigger === 'dependencyChange'), true);
   });
 
+  it('flags absolute dependency paths (Windows-style)', () => {
+    const hits = detectPathRisks(
+      'D:/Projects/ado-bug-agent/package.json',
+      DEFAULT_CONFIG,
+    );
+    assert.equal(hits.some((h) => h.trigger === 'dependencyChange'), true);
+  });
+
+  it('flags absolute auth paths against relative authPaths', () => {
+    const config = {
+      ...DEFAULT_CONFIG,
+      authPaths: ['src/auth/**'],
+    };
+    const hits = detectPathRisks(
+      'D:/Projects/ado-bug-agent/src/auth/login.ts',
+      config,
+    );
+    assert.equal(hits.some((h) => h.trigger === 'authChange'), true);
+  });
+
   it('flags protected paths', () => {
     const hits = detectPathRisks('.env.local', DEFAULT_CONFIG);
     assert.equal(hits.some((h) => h.trigger === 'protectedPaths'), true);

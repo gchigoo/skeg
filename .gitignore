@@ -9,6 +9,13 @@ dist/
 # local planning / background
 archive/
 
-# generated dogfood / smoke reports
+# design docs — local only, not published / not tracked
+DESIGN.md
+CHANGELOG.md
+NON_GOALS.md
+
+# generated dogfood / smoke / host reports
 dogfood/LAST_RUN.md
 dogfood/PI_SMOKE.md
+dogfood/FRICTION.md
+dogfood/HOST_DOGFOOD.md

@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { DEFAULT_CONFIG } from './config.ts';
 import { buildInjectContext, estimateTokens } from './inject.ts';
+import { createRecord } from './record.ts';
 import { createRun, upsertCheck } from './run.ts';
 import type { SkegConfig } from './types.ts';
 
@@ -56,6 +60,49 @@ describe('buildInjectContext', () => {
         estimateTokens(text) <= 800,
         `${guidance} tokens=${estimateTokens(text)}`,
       );
+    }
+  });
+
+  it('standard injects records index when present', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'skeg-inject-rec-'));
+    try {
+      createRecord(cwd, {
+        type: 'decision',
+        title: 'Auth boundary clears session on logout',
+      });
+      const run = createRun('fix session clear');
+      const text = buildInjectContext(run, DEFAULT_CONFIG, cwd);
+      assert.match(text, /Records \(\.skeg\/records\/\):/);
+      assert.match(text, /DEC-001 Auth boundary clears session on logout/);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('compact omits records index', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'skeg-inject-compact-'));
+    try {
+      createRecord(cwd, {
+        type: 'decision',
+        title: 'Auth boundary clears session on logout',
+      });
+      const config: SkegConfig = { ...DEFAULT_CONFIG, guidance: 'compact' };
+      const run = createRun('fix session clear');
+      const text = buildInjectContext(run, config, cwd);
+      assert.doesNotMatch(text, /Records/);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('omits Records when no records exist', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'skeg-inject-none-'));
+    try {
+      const run = createRun('fix session clear');
+      const text = buildInjectContext(run, DEFAULT_CONFIG, cwd);
+      assert.doesNotMatch(text, /Records/);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
     }
   });
 });

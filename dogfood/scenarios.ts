@@ -1,8 +1,14 @@
 /**
- * dogfood 场景：v0.1 基线（5 fix + 3 feature + 2 risk）+ v0.2 check/guidance。
+ * dogfood 场景：v0.1 基线 + v0.2 check/guidance + v0.3 record 回读。
  */
 
-export type ScenarioKind = 'fix' | 'feature' | 'risk' | 'check' | 'guidance';
+export type ScenarioKind =
+  | 'fix'
+  | 'feature'
+  | 'risk'
+  | 'check'
+  | 'guidance'
+  | 'record';
 
 export type SimulatedTool = {
   tool: 'read' | 'write' | 'edit' | 'bash';
@@ -20,12 +26,20 @@ export type ExpectedCheck = {
   passed: boolean;
 };
 
+export type PreexistingRecord = {
+  type: 'decision' | 'migration' | 'incident';
+  title: string;
+  body?: string;
+};
+
 export type Scenario = {
   id: string;
   kind: ScenarioKind;
   intent: string;
   /** guidance 密度覆盖（默认用 DEFAULT_CONFIG） */
   guidance?: 'compact' | 'standard';
+  /** 场景开始前预置到临时 cwd 的 records */
+  preexistingRecords?: PreexistingRecord[];
   /** /run 到首次 write|edit 之前的工具调用（含首次编辑本身之前的次数） */
   toolsBeforeFirstEdit: SimulatedTool[];
   /** 首次及后续写操作 */
@@ -320,6 +334,65 @@ export const SCENARIOS: Scenario[] = [
       artifactCount: 0,
       openGate: false,
       injectIncludes: ['Rules:', 'Next:'],
+    },
+  },
+  // --- v0.3: record 回读索引 ---
+  {
+    id: 'record-01-index-injected',
+    kind: 'record',
+    guidance: 'standard',
+    intent: 'standard 注入含 records 索引',
+    preexistingRecords: [
+      {
+        type: 'decision',
+        title: 'Auth boundary clears session on logout',
+      },
+      {
+        type: 'migration',
+        title: 'Add index on users.email',
+      },
+    ],
+    toolsBeforeFirstEdit: [{ tool: 'read', path: 'src/auth/logout.ts' }],
+    edits: [{ tool: 'edit', path: 'src/auth/logout.ts' }],
+    expect: {
+      riskAfterEdits: 'lean',
+      artifactCount: 0,
+      openGate: false,
+      injectIncludes: ['Records', 'DEC-001'],
+    },
+  },
+  {
+    id: 'record-02-empty-omitted',
+    kind: 'record',
+    guidance: 'standard',
+    intent: '无 records 时索引段应省略',
+    toolsBeforeFirstEdit: [{ tool: 'read', path: 'src/settings/copy.ts' }],
+    edits: [{ tool: 'edit', path: 'src/settings/copy.ts' }],
+    expect: {
+      riskAfterEdits: 'lean',
+      artifactCount: 0,
+      openGate: false,
+      injectExcludes: ['Records'],
+    },
+  },
+  {
+    id: 'record-03-compact-omitted',
+    kind: 'record',
+    guidance: 'compact',
+    intent: 'compact 下索引段应省略',
+    preexistingRecords: [
+      {
+        type: 'decision',
+        title: 'Auth boundary clears session on logout',
+      },
+    ],
+    toolsBeforeFirstEdit: [{ tool: 'read', path: 'src/settings/copy.ts' }],
+    edits: [{ tool: 'edit', path: 'src/settings/copy.ts' }],
+    expect: {
+      riskAfterEdits: 'lean',
+      artifactCount: 0,
+      openGate: false,
+      injectExcludes: ['Records'],
     },
   },
 ];

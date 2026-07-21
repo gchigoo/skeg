@@ -42,9 +42,13 @@ Prompt template:
 
 ## Status
 
-**v0.2.0 ready** — `npm run verify` PASS（含 command-check 自动记账与 guidance 密度）。
+**v0.3.0 ready** — Record 回读；ado-bug-agent 宿主 dogfood 10/10 PASS；摩擦驱动修复（绝对路径 risk、`node --test` 记账）。
 
-v0.1 Pi smoke 仍见 `dogfood/PI_SMOKE.md`。
+```bash
+npm run verify
+npm run smoke
+npm run dogfood:host -- --cwd /path/to/real-project
+```
 
 ## Config highlights
 
@@ -62,16 +66,13 @@ v0.1 Pi smoke 仍见 `dogfood/PI_SMOKE.md`。
 - bash `pnpm test src/foo.test.ts` → 自动记 `targeted-test`
 - `guidance: "compact"` → 注入仅状态行
 
-## Design
-
-See [DESIGN.md](./DESIGN.md), [NON_GOALS.md](./NON_GOALS.md), [CHANGELOG.md](./CHANGELOG.md).
-
 ## Develop
 
 ```bash
 npm install
 npm run verify    # test + typecheck + budgets + dogfood
 npm run smoke     # Pi 实机抽测（需本机已装 pi）
+npm run dogfood:host -- --cwd /path/to/real-project
 ```
 
-Reports: `dogfood/LAST_RUN.md`, `dogfood/PI_SMOKE.md`.
+Design notes (`DESIGN.md` / `NON_GOALS.md` / `CHANGELOG.md`) and dogfood reports stay local (gitignored).

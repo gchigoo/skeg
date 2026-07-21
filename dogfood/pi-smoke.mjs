@@ -4,7 +4,13 @@
  * 或：node dogfood/pi-smoke.mjs --cwd /path/to/sandbox
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  writeFileSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+} from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -278,7 +284,7 @@ class PiRpc {
   /**
    * @returns {Promise<object[]>}
    */
-  async getSkegRuns() {
+  async getEntries() {
     const before = this.events.length;
     this.send({ id: 'entries', type: 'get_entries' });
     const start = Date.now();
@@ -287,14 +293,36 @@ class PiRpc {
         .slice(before)
         .find((e) => e.type === 'response' && e.command === 'get_entries');
       if (resp) {
-        const entries = /** @type {any[]} */ (resp.data?.entries || []);
-        return entries
-          .filter((e) => e.type === 'custom' && e.customType === 'skeg/run')
-          .map((e) => e.data);
+        return /** @type {any[]} */ (resp.data?.entries || []);
       }
       await new Promise((r) => setTimeout(r, 50));
     }
     throw new Error('get_entries timeout');
+  }
+
+  /**
+   * @returns {Promise<object[]>}
+   */
+  async getSkegRuns() {
+    const entries = await this.getEntries();
+    return entries
+      .filter((e) => e.type === 'custom' && e.customType === 'skeg/run')
+      .map((e) => e.data);
+  }
+
+  /**
+   * before_agent_start 注入以 custom_message / skeg/context 落盘。
+   * @returns {Promise<string[]>}
+   */
+  async getSkegContexts() {
+    const entries = await this.getEntries();
+    return entries
+      .filter(
+        (e) =>
+          e.customType === 'skeg/context' &&
+          (e.type === 'custom_message' || e.type === 'custom'),
+      )
+      .map((e) => String(e.content ?? e.data?.content ?? ''));
   }
 
   async stop() {
@@ -350,11 +378,21 @@ async function main() {
       existsSync(join(SANDBOX, '.skeg/project.md')),
   );
 
-  // /record 轻量验证（不要求留下 artifact 给 lean 场景）
+  // /record 轻量验证（为后续 Records 索引注入预置一条）
   pi.notifies = [];
   await pi.prompt('/record incident Smoke note | pi smoke harness check');
   const recordNotify = pi.notifies.find((n) => /Recorded/i.test(n.message || ''));
   record('commands UX (/record)', Boolean(recordNotify), recordNotify?.message || '');
+  const recordDir = join(SANDBOX, '.skeg/records');
+  const recordFile = existsSync(recordDir)
+    ? readdirSync(recordDir).find((n) => n.startsWith('INC-') && n.endsWith('.md'))
+    : undefined;
+  record(
+    '/record writes file',
+    Boolean(recordFile) &&
+      readFileSync(join(recordDir, recordFile), 'utf8').includes('Smoke note'),
+    recordFile || 'missing',
+  );
 
   // ========== lean 1: redirect ==========
   pi.notifies = [];
@@ -373,6 +411,23 @@ async function main() {
       '2. Do not touch any other files.',
       '3. Do not run tests. Reply DONE when the file is edited.',
     ].join('\n'),
+  );
+
+  // v0.3：agent turn 注入应含 Records 索引（standard guidance）
+  // Pi 以 custom_message/skeg/context 落盘（非 custom entry）
+  const allEntries = await pi.getEntries();
+  const contexts = await pi.getSkegContexts();
+  const withRecords = contexts.find(
+    (c) => /Records\s*\(\.skeg\/records\/\)/.test(c) && /INC-\d+/.test(c),
+  );
+  record(
+    'records index injected',
+    Boolean(withRecords),
+    withRecords
+      ? withRecords.replace(/\n/g, ' | ').slice(0, 200)
+      : `contexts=${contexts.length}; entries=${allEntries.length}; types=${[
+          ...new Set(allEntries.map((e) => `${e.type}:${e.customType || ''}`)),
+        ].join(',')}`,
   );
 
   const lean1Gates = pi.uiRequests.filter((u) => u.method === 'confirm');
@@ -527,7 +582,7 @@ async function main() {
   writeFileSync(
     out,
     [
-      '# Skeg Pi smoke (2 lean + 1 risk)',
+      '# Skeg Pi smoke (2 lean + 1 risk + records index)',
       '',
       `Date: ${report.date}`,
       `Result: ${report.result}`,
@@ -536,7 +591,7 @@ async function main() {
       '',
       '## Checks',
       failures.length === 0
-        ? '- all passed'
+        ? '- all passed (incl. records index inject)'
         : failures.map((f) => `- FAIL: ${f}`).join('\n'),
       '',
       '## Gate confirms seen',

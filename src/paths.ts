@@ -27,14 +27,36 @@ export function globToRegExp(pattern: string): RegExp {
 }
 
 /**
+ * 生成用于 glob 匹配的路径候选（含相对后缀）。
+ * 宿主常传绝对路径（如 D:/proj/package.json），需与相对 glob 对齐。
+ * @param path 归一化路径
+ * @returns 候选路径列表
+ */
+export function pathMatchCandidates(path: string): string[] {
+  const normalized = normalizePath(path);
+  const out = new Set<string>([normalized]);
+  const parts = normalized.split('/').filter(Boolean);
+  let start = 0;
+  if (parts.length > 0 && /^[A-Za-z]:$/.test(parts[0])) start = 1;
+  for (let i = start; i < parts.length; i++) {
+    out.add(parts.slice(i).join('/'));
+  }
+  return [...out];
+}
+
+/**
  * 判断路径是否匹配任一 glob。
+ * 对绝对路径同时尝试各相对后缀（package.json、src/auth/** 等）。
  * @param path 文件路径
  * @param patterns glob 列表
  * @returns 是否匹配
  */
 export function matchesAny(path: string, patterns: string[]): boolean {
-  const normalized = normalizePath(path);
-  return patterns.some((pattern) => globToRegExp(pattern).test(normalized));
+  const candidates = pathMatchCandidates(path);
+  return patterns.some((pattern) => {
+    const re = globToRegExp(pattern);
+    return candidates.some((candidate) => re.test(candidate));
+  });
 }
 
 /**

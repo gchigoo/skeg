@@ -2,7 +2,11 @@
  * 构建 before_agent_start 注入文本，目标 ≤ 800 tokens。
  */
 import { loadProjectSummary } from './config.ts';
+import { listRecords } from './record.ts';
 import type { Phase, RunState, SkegConfig } from './types.ts';
+
+/** standard guidance 注入的 records 索引条数上限。 */
+const RECORDS_INDEX_LIMIT = 5;
 
 /**
  * 估算文本 token 数（与 scripts/check-budgets.mjs 同启发式）。
@@ -94,6 +98,13 @@ export function buildInjectContext(
     if (summary) {
       lines.push('Project:');
       lines.push(summary);
+    }
+    const records = listRecords(cwd, RECORDS_INDEX_LIMIT);
+    if (records.length > 0) {
+      lines.push('Records (.skeg/records/):');
+      for (const rec of records) {
+        lines.push(`${rec.id} ${rec.title}`);
+      }
     }
   } else if (pending.length > 0) {
     lines.push(`Failed checks: ${pending.join(', ')}`);

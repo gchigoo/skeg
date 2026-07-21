@@ -30,10 +30,18 @@ describe('classifyCheckCommand', () => {
       'jest src/auth/logout.test.ts',
       'pytest tests/test_auth.py',
       'go test ./pkg/auth',
+      'node --test tests/http-client.js',
     ]) {
       const hit = classifyCheckCommand(cmd, DEFAULT_CONFIG);
       assert.deepEqual(hit, { kind: 'command', name: 'targeted-test' }, cmd);
     }
+  });
+
+  it('classifies bare node --test as test', () => {
+    assert.deepEqual(classifyCheckCommand('node --test', DEFAULT_CONFIG), {
+      kind: 'command',
+      name: 'test',
+    });
   });
 
   it('classifies lint / typecheck / build', () => {

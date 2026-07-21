@@ -1,6 +1,6 @@
 {
   "name": "skeg",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Minimal engineering workflow for coding agents. Stay light. Hold course.",
   "type": "module",
   "keywords": [
@@ -14,9 +14,6 @@
     "prompts",
     "src",
     "templates",
-    "DESIGN.md",
-    "NON_GOALS.md",
-    "CHANGELOG.md",
     "README.md"
   ],
   "pi": {
@@ -31,6 +28,7 @@
     "test": "node --experimental-strip-types --test src/**/*.test.ts",
     "dogfood": "node --experimental-strip-types dogfood/run.ts",
     "smoke": "node dogfood/pi-smoke.mjs",
+    "dogfood:host": "node dogfood/host-dogfood.mjs",
     "check:budgets": "node scripts/check-budgets.mjs",
     "check:loc": "node scripts/check-budgets.mjs --loc",
     "typecheck": "tsc --noEmit",

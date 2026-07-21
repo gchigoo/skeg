@@ -65,7 +65,11 @@ export function loadConfig(cwd: string): SkegConfig {
       checks: {
         default: raw.checks?.default ?? DEFAULT_CONFIG.checks.default,
         guarded: raw.checks?.guarded ?? DEFAULT_CONFIG.checks.guarded,
-        commands: raw.checks?.commands ?? DEFAULT_CONFIG.checks.commands,
+        // 容忍误写在顶层的 commands（dogfood 真实摩擦）
+        commands:
+          raw.checks?.commands ??
+          (raw as { commands?: Record<string, string> }).commands ??
+          DEFAULT_CONFIG.checks.commands,
       },
     };
   } catch {

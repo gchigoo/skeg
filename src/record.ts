@@ -1,7 +1,13 @@
 /**
  * Record：将值得长期保留的知识惰性写入 `.skeg/records/`。
  */
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { SKEG_DIR, type RunState } from './types.ts';
 
@@ -82,6 +88,103 @@ export function parseRecordArgs(args: string):
   }
 
   return { ok: true, type, title, body };
+}
+
+/** listRecords 返回的精简条目（供注入索引用）。 */
+export type RecordIndexEntry = {
+  id: string;
+  type: RecordType;
+  title: string;
+  createdAt: string;
+  fileName: string;
+};
+
+/**
+ * 列出 `.skeg/records/` 中的记录，按 createdAt 倒序。
+ * @param cwd 项目根
+ * @param limit 最多返回条数（默认 5）
+ * @returns 索引条目；目录不存在或为空时返回 []
+ */
+export function listRecords(cwd: string, limit = 5): RecordIndexEntry[] {
+  const dir = join(cwd, SKEG_DIR, 'records');
+  if (!existsSync(dir)) return [];
+
+  const entries: RecordIndexEntry[] = [];
+  for (const fileName of readdirSync(dir)) {
+    if (!fileName.endsWith('.md')) continue;
+    const parsed = parseRecordFrontmatter(
+      readFileSync(join(dir, fileName), 'utf8'),
+    );
+    if (!parsed) continue;
+    entries.push({
+      id: parsed.id,
+      type: parsed.type,
+      title: parsed.title,
+      createdAt: parsed.createdAt,
+      fileName,
+    });
+  }
+
+  entries.sort((a, b) => {
+    if (a.createdAt === b.createdAt) return b.id.localeCompare(a.id);
+    return a.createdAt < b.createdAt ? 1 : -1;
+  });
+  return entries.slice(0, Math.max(0, limit));
+}
+
+/**
+ * 解析 createRecord 写入的 frontmatter（逐行，无 YAML 依赖）。
+ * @param text markdown 全文
+ * @returns 解析结果；无效时 null
+ */
+function parseRecordFrontmatter(text: string): {
+  id: string;
+  type: RecordType;
+  title: string;
+  createdAt: string;
+} | null {
+  if (!text.startsWith('---\n') && !text.startsWith('---\r\n')) return null;
+  const end = text.indexOf('\n---', 3);
+  if (end < 0) return null;
+  const block = text.slice(4, end);
+
+  let id = '';
+  let type: RecordType | undefined;
+  let title = '';
+  let createdAt = '';
+
+  for (const line of block.split(/\r?\n/)) {
+    const colon = line.indexOf(':');
+    if (colon < 0) continue;
+    const key = line.slice(0, colon).trim();
+    const raw = line.slice(colon + 1).trim();
+    if (key === 'id') id = raw;
+    else if (key === 'type') type = normalizeType(raw);
+    else if (key === 'title') title = unquoteYamlValue(raw);
+    else if (key === 'createdAt') createdAt = raw;
+  }
+
+  if (!id || !type || !title || !createdAt) return null;
+  return { id, type, title, createdAt };
+}
+
+/**
+ * 还原 yamlEscape 写出的值（JSON 字符串或裸字符串）。
+ * @param value frontmatter 值
+ * @returns 原始字符串
+ */
+function unquoteYamlValue(value: string): string {
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    try {
+      return JSON.parse(value) as string;
+    } catch {
+      return value.slice(1, -1);
+    }
+  }
+  return value;
 }
 
 /**

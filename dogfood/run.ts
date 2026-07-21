@@ -10,14 +10,17 @@
  * - /run → 首次编辑工具调用次数中位数 ≤ 4
  * - RunState 可经 entries 恢复且 /status 可读
  * - command check 自动记账正确；非验证命令误记账 = 0
+ * - records 索引注入正确（有则注入、无则零注入、compact 不注入）
  */
-import { writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildCommandCheck, classifyCheckCommand } from '../src/checks.ts';
 import { DEFAULT_CONFIG } from '../src/config.ts';
 import { buildInjectContext, estimateTokens } from '../src/inject.ts';
 import { runProveChecks } from '../src/prove.ts';
+import { createRecord } from '../src/record.ts';
 import { requiresGate, scanToolCall } from '../src/risk.ts';
 import {
   addChangedFiles,
@@ -99,181 +102,209 @@ function runScenario(scenario: Scenario): ScenarioResult {
   let run = createRun(scenario.intent, config.defaultPolicy);
   const entries: Array<{ type: string; customType: string; data: RunState }> = [];
 
-  const persist = (next: RunState) => {
-    run = next;
-    entries.push({ type: 'custom', customType: 'skeg/run', data: next });
-  };
-
-  const toolsBefore = scenario.toolsBeforeFirstEdit.length;
-  // 仅对 v0.1 基线场景（fix/feature/risk）施加中位数预算；check/guidance 不计入
+  // record 场景用临时 cwd 预置 records；其余场景用 process.cwd()
+  let injectCwd = process.cwd();
+  let tempCwd: string | undefined;
   if (
-    (scenario.kind === 'fix' ||
-      scenario.kind === 'feature' ||
-      scenario.kind === 'risk') &&
-    toolsBefore > MAX_MEDIAN_TOOLS
+    scenario.preexistingRecords !== undefined ||
+    scenario.kind === 'record'
   ) {
-    failures.push(
-      `tools before first edit = ${toolsBefore} > ${MAX_MEDIAN_TOOLS}`,
-    );
+    tempCwd = mkdtempSync(join(tmpdir(), 'skeg-dogfood-'));
+    injectCwd = tempCwd;
+    for (const rec of scenario.preexistingRecords ?? []) {
+      createRecord(tempCwd, {
+        type: rec.type,
+        title: rec.title,
+        body: rec.body,
+      });
+    }
   }
 
-  // 模拟 orient 读取；bash 也可能触发 check 记账（如误记检测）
-  for (const tool of scenario.toolsBeforeFirstEdit) {
-    const [name, input] = toToolCall(tool);
-    scanToolCall(name, input, config);
-    if (tool.tool === 'bash') {
+  try {
+    const persist = (next: RunState) => {
+      run = next;
+      entries.push({ type: 'custom', customType: 'skeg/run', data: next });
+    };
+
+    const toolsBefore = scenario.toolsBeforeFirstEdit.length;
+    // 仅对 v0.1 基线场景（fix/feature/risk）施加中位数预算
+    if (
+      (scenario.kind === 'fix' ||
+        scenario.kind === 'feature' ||
+        scenario.kind === 'risk') &&
+      toolsBefore > MAX_MEDIAN_TOOLS
+    ) {
+      failures.push(
+        `tools before first edit = ${toolsBefore} > ${MAX_MEDIAN_TOOLS}`,
+      );
+    }
+
+    // 模拟 orient 读取；bash 也可能触发 check 记账（如误记检测）
+    for (const tool of scenario.toolsBeforeFirstEdit) {
+      const [name, input] = toToolCall(tool);
+      scanToolCall(name, input, config);
+      if (tool.tool === 'bash') {
+        persist(applyBashCheck(run, tool, config));
+      }
+    }
+
+    let gateHit: string | undefined;
+
+    for (const edit of scenario.edits) {
+      const [name, input] = toToolCall(edit);
+      const hits = scanToolCall(name, input, config);
+      const gate = hits.find((h) => requiresGate(h.trigger));
+      if (gate) {
+        gateHit = gate.trigger;
+        persist(applyRiskHit(run, gate));
+      }
+      if (edit.path) {
+        let next = addChangedFiles(run, [edit.path]);
+        if (next.phase === 'orient') next = setPhase(next, 'change');
+        persist(next);
+      }
+    }
+
+    for (const tool of scenario.proveCommands ?? []) {
       persist(applyBashCheck(run, tool, config));
     }
-  }
 
-  let gateHit: string | undefined;
-
-  for (const edit of scenario.edits) {
-    const [name, input] = toToolCall(edit);
-    const hits = scanToolCall(name, input, config);
-    const gate = hits.find((h) => requiresGate(h.trigger));
-    if (gate) {
-      gateHit = gate.trigger;
-      persist(applyRiskHit(run, gate));
-    }
-    if (edit.path) {
-      let next = addChangedFiles(run, [edit.path]);
-      if (next.phase === 'orient') next = setPhase(next, 'change');
-      persist(next);
-    }
-  }
-
-  for (const tool of scenario.proveCommands ?? []) {
-    persist(applyBashCheck(run, tool, config));
-  }
-
-  // Prove（注入假 git）
-  const proved = runProveChecks(process.cwd(), run, config, (_cwd, args) => {
-    if (args[0] === 'status') {
-      return `${run.changedFiles.map((f) => ` M ${f}`).join('\n')}\n`;
-    }
-    if (args.includes('--name-only')) {
-      return `${run.changedFiles.join('\n')}\n`;
-    }
-    if (scenario.kind === 'risk') {
+    // Prove（注入假 git）
+    const proved = runProveChecks(process.cwd(), run, config, (_cwd, args) => {
+      if (args[0] === 'status') {
+        return `${run.changedFiles.map((f) => ` M ${f}`).join('\n')}\n`;
+      }
+      if (args.includes('--name-only')) {
+        return `${run.changedFiles.join('\n')}\n`;
+      }
+      if (scenario.kind === 'risk') {
+        return run.changedFiles
+          .map(
+            (f) =>
+              `diff --git a/${f} b/${f}\n--- a/${f}\n+++ b/${f}\n+change\n`,
+          )
+          .join('');
+      }
       return run.changedFiles
         .map(
           (f) =>
-            `diff --git a/${f} b/${f}\n--- a/${f}\n+++ b/${f}\n+change\n`,
+            `diff --git a/${f} b/${f}\n--- a/${f}\n+++ b/${f}\n+const ok = true;\n`,
         )
         .join('');
-    }
-    return run.changedFiles
-      .map(
-        (f) =>
-          `diff --git a/${f} b/${f}\n--- a/${f}\n+++ b/${f}\n+const ok = true;\n`,
-      )
-      .join('');
-  });
-  persist(proved.run);
+    });
+    persist(proved.run);
 
-  const inject = buildInjectContext(run, config, process.cwd());
-  const injectTokens = estimateTokens(inject);
-  if (injectTokens > MAX_INJECT) {
-    failures.push(`inject tokens ${injectTokens} > ${MAX_INJECT}`);
-  }
-
-  for (const needle of scenario.expect.injectIncludes ?? []) {
-    if (!inject.includes(needle)) {
-      failures.push(`inject missing "${needle}"`);
+    const inject = buildInjectContext(run, config, injectCwd);
+    const injectTokens = estimateTokens(inject);
+    if (injectTokens > MAX_INJECT) {
+      failures.push(`inject tokens ${injectTokens} > ${MAX_INJECT}`);
     }
-  }
-  for (const needle of scenario.expect.injectExcludes ?? []) {
-    if (inject.includes(needle)) {
-      failures.push(`inject unexpectedly contains "${needle}"`);
-    }
-  }
 
-  // command check 记账断言
-  if (scenario.expect.commandChecks) {
-    for (const want of scenario.expect.commandChecks) {
-      const got = run.checks.find(
-        (c) => c.kind === 'command' && c.name === want.name,
-      );
-      if (!got) {
-        failures.push(`missing command check: ${want.name}`);
-      } else if (got.passed !== want.passed) {
+    for (const needle of scenario.expect.injectIncludes ?? []) {
+      if (!inject.includes(needle)) {
+        failures.push(`inject missing "${needle}"`);
+      }
+    }
+    for (const needle of scenario.expect.injectExcludes ?? []) {
+      if (inject.includes(needle)) {
+        failures.push(`inject unexpectedly contains "${needle}"`);
+      }
+    }
+
+    // command check 记账断言
+    if (scenario.expect.commandChecks) {
+      for (const want of scenario.expect.commandChecks) {
+        const got = run.checks.find(
+          (c) => c.kind === 'command' && c.name === want.name,
+        );
+        if (!got) {
+          failures.push(`missing command check: ${want.name}`);
+        } else if (got.passed !== want.passed) {
+          failures.push(
+            `check ${want.name} passed=${got.passed}, want ${want.passed}`,
+          );
+        }
+      }
+    }
+    if (scenario.expect.noCommandChecks) {
+      const cmds = run.checks.filter((c) => c.kind === 'command');
+      if (cmds.length > 0) {
         failures.push(
-          `check ${want.name} passed=${got.passed}, want ${want.passed}`,
+          `unexpected command checks: ${cmds.map((c) => c.name).join(', ')}`,
         );
       }
     }
-  }
-  if (scenario.expect.noCommandChecks) {
-    const cmds = run.checks.filter((c) => c.kind === 'command');
-    if (cmds.length > 0) {
-      failures.push(
-        `unexpected command checks: ${cmds.map((c) => c.name).join(', ')}`,
-      );
-    }
-  }
 
-  // RunState 恢复
-  const restored = latestRunFromEntries(entries);
-  if (!restored || restored.id !== run.id || restored.intent !== scenario.intent) {
-    failures.push('RunState restore via entries failed');
-  }
-  const status = formatStatus(restored);
-  if (!status.includes(scenario.intent)) {
-    failures.push('/status text missing intent');
-  }
-
-  // lean 约束（risk 除外）
-  if (scenario.kind !== 'risk') {
-    if ((run.recordIds?.length ?? 0) !== scenario.expect.artifactCount) {
-      failures.push(
-        `artifactCount=${run.recordIds?.length ?? 0}, want ${scenario.expect.artifactCount}`,
-      );
-    }
-    if (run.pendingGate && !run.pendingGate.resolved) {
-      failures.push('lean/feature unexpectedly has open gate');
-    }
+    // RunState 恢复
+    const restored = latestRunFromEntries(entries);
     if (
-      scenario.expect.riskAfterEdits === 'lean' &&
-      run.riskSource === 'deterministic'
+      !restored ||
+      restored.id !== run.id ||
+      restored.intent !== scenario.intent
     ) {
-      failures.push('lean task escalated by deterministic risk unexpectedly');
+      failures.push('RunState restore via entries failed');
+    }
+    const status = formatStatus(restored);
+    if (!status.includes(scenario.intent)) {
+      failures.push('/status text missing intent');
+    }
+
+    // lean 约束（risk 除外）
+    if (scenario.kind !== 'risk') {
+      if ((run.recordIds?.length ?? 0) !== scenario.expect.artifactCount) {
+        failures.push(
+          `artifactCount=${run.recordIds?.length ?? 0}, want ${scenario.expect.artifactCount}`,
+        );
+      }
+      if (run.pendingGate && !run.pendingGate.resolved) {
+        failures.push('lean/feature unexpectedly has open gate');
+      }
+      if (
+        scenario.expect.riskAfterEdits === 'lean' &&
+        run.riskSource === 'deterministic'
+      ) {
+        failures.push('lean task escalated by deterministic risk unexpectedly');
+      }
+    }
+
+    // 确定性 trigger
+    if (scenario.expect.gateTrigger) {
+      if (gateHit !== scenario.expect.gateTrigger) {
+        failures.push(
+          `gate trigger=${gateHit ?? 'none'}, want ${scenario.expect.gateTrigger}`,
+        );
+      }
+      if (run.risk !== 'guarded' || run.riskSource !== 'deterministic') {
+        failures.push(
+          `risk=${run.risk}/${run.riskSource}, want guarded/deterministic`,
+        );
+      }
+      if (!run.pendingGate || run.pendingGate.resolved) {
+        failures.push('expected open pending gate after risk edit');
+      }
+    } else if (gateHit) {
+      failures.push(`unexpected gate trigger: ${gateHit}`);
+    }
+
+    if (scenario.kind !== 'risk') {
+      persist(closeRun(run, 'done'));
+    }
+
+    return {
+      id: scenario.id,
+      kind: scenario.kind,
+      pass: failures.length === 0,
+      toolsBeforeFirstEdit: toolsBefore,
+      injectTokens,
+      risk: `${run.risk}/${run.riskSource}`,
+      gateTrigger: gateHit,
+      failures,
+    };
+  } finally {
+    if (tempCwd) {
+      rmSync(tempCwd, { recursive: true, force: true });
     }
   }
-
-  // 确定性 trigger
-  if (scenario.expect.gateTrigger) {
-    if (gateHit !== scenario.expect.gateTrigger) {
-      failures.push(
-        `gate trigger=${gateHit ?? 'none'}, want ${scenario.expect.gateTrigger}`,
-      );
-    }
-    if (run.risk !== 'guarded' || run.riskSource !== 'deterministic') {
-      failures.push(
-        `risk=${run.risk}/${run.riskSource}, want guarded/deterministic`,
-      );
-    }
-    if (!run.pendingGate || run.pendingGate.resolved) {
-      failures.push('expected open pending gate after risk edit');
-    }
-  } else if (gateHit) {
-    failures.push(`unexpected gate trigger: ${gateHit}`);
-  }
-
-  if (scenario.kind !== 'risk') {
-    persist(closeRun(run, 'done'));
-  }
-
-  return {
-    id: scenario.id,
-    kind: scenario.kind,
-    pass: failures.length === 0,
-    toolsBeforeFirstEdit: toolsBefore,
-    injectTokens,
-    risk: `${run.risk}/${run.riskSource}`,
-    gateTrigger: gateHit,
-    failures,
-  };
 }
 
 /**
@@ -296,6 +327,7 @@ function main() {
   const risks = SCENARIOS.filter((s) => s.kind === 'risk');
   const checks = SCENARIOS.filter((s) => s.kind === 'check');
   const guidance = SCENARIOS.filter((s) => s.kind === 'guidance');
+  const records = SCENARIOS.filter((s) => s.kind === 'record');
 
   if (fixes.length < 5 || features.length < 3 || risks.length < 2) {
     console.error('Scenario mix invalid: need ≥5 fix, ≥3 feature, ≥2 risk');
@@ -303,6 +335,10 @@ function main() {
   }
   if (checks.length < 3 || guidance.length < 2) {
     console.error('v0.2 mix invalid: need ≥3 check, ≥2 guidance');
+    process.exit(2);
+  }
+  if (records.length < 3) {
+    console.error('v0.3 mix invalid: need ≥3 record');
     process.exit(2);
   }
 
@@ -323,6 +359,12 @@ function main() {
       ? 0
       : checkResults.filter((r) => r.pass).length / checkResults.length;
 
+  const recordResults = results.filter((r) => r.kind === 'record');
+  const recordPassRate =
+    recordResults.length === 0
+      ? 0
+      : recordResults.filter((r) => r.pass).length / recordResults.length;
+
   const aggregateFailures: string[] = [];
   if (toolsMedian > MAX_MEDIAN_TOOLS) {
     aggregateFailures.push(
@@ -339,6 +381,11 @@ function main() {
       `command-check scenario pass rate ${checkPassRate * 100}% < 100%`,
     );
   }
+  if (recordPassRate < 1) {
+    aggregateFailures.push(
+      `record scenario pass rate ${recordPassRate * 100}% < 100%`,
+    );
+  }
 
   const failed = results.filter((r) => !r.pass);
   const pass = failed.length === 0 && aggregateFailures.length === 0;
@@ -351,10 +398,11 @@ function main() {
     '',
     '## Aggregate',
     '',
-    `- scenarios: ${results.length} (fix=${fixes.length}, feature=${features.length}, risk=${risks.length}, check=${checks.length}, guidance=${guidance.length})`,
+    `- scenarios: ${results.length} (fix=${fixes.length}, feature=${features.length}, risk=${risks.length}, check=${checks.length}, guidance=${guidance.length}, record=${records.length})`,
     `- median tools before first edit (baseline): ${toolsMedian} (budget ≤ ${MAX_MEDIAN_TOOLS})`,
     `- deterministic risk pass rate: ${Math.round(riskHitRate * 100)}% (budget 100%)`,
     `- command-check pass rate: ${Math.round(checkPassRate * 100)}% (budget 100%)`,
+    `- record pass rate: ${Math.round(recordPassRate * 100)}% (budget 100%)`,
     `- max inject tokens: ${Math.max(...results.map((r) => r.injectTokens))} (budget ≤ ${MAX_INJECT})`,
     '',
     '## Scenarios',
@@ -385,6 +433,7 @@ function main() {
     '- `/init` → `/run` → edit → `/status` → `/finish`',
     '- risk edit must show gate confirm UI',
     '- bash `pnpm test <file>` should appear in `/status` Checks',
+    '- `/record decision ...` then next agent turn should inject Records index',
     '',
   );
 

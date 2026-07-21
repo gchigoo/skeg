@@ -12,11 +12,11 @@ const EVIDENCE_MAX = 400;
 
 /** 裸跑 test 命令（无文件/模式参数时归为 test） */
 const BARE_TEST_RE =
-  /(?:^|[;&|]\s*)(?:npm\s+test|npm\s+run\s+test(?:s)?|pnpm\s+test|pnpm\s+run\s+test(?:s)?|yarn\s+test|bun\s+test|vitest(?:\s+run)?|jest|pytest|go\s+test|cargo\s+test|deno\s+test)(?:\s|$)/i;
+  /(?:^|[;&|]\s*)(?:npm\s+test|npm\s+run\s+test(?:s)?|pnpm\s+test|pnpm\s+run\s+test(?:s)?|yarn\s+test|bun\s+test|node\s+--test|vitest(?:\s+run)?|jest|pytest|go\s+test|cargo\s+test|deno\s+test)(?:\s|$)/i;
 
 /** 带文件/路径参数的 targeted test */
 const TARGETED_TEST_RE =
-  /(?:npm\s+test|npm\s+run\s+test(?:s)?|pnpm\s+test|pnpm\s+run\s+test(?:s)?|yarn\s+test|bun\s+test|vitest(?:\s+run)?|jest|pytest|go\s+test|cargo\s+test|deno\s+test)\s+\S+/i;
+  /(?:npm\s+test|npm\s+run\s+test(?:s)?|pnpm\s+test|pnpm\s+run\s+test(?:s)?|yarn\s+test|bun\s+test|node\s+--test|vitest(?:\s+run)?|jest|pytest|go\s+test|cargo\s+test|deno\s+test)\s+\S+/i;
 
 const LINT_RE =
   /(?:^|[;&|]\s*)(?:npm\s+run\s+lint|pnpm\s+lint|pnpm\s+run\s+lint|yarn\s+lint|eslint|ruff\s+check|biome\s+lint|golangci-lint)(?:\s|$)/i;
@@ -39,7 +39,7 @@ function looksTargeted(command: string): boolean {
     // 排除仅带 flag 的裸跑：vitest --run、jest --coverage、npm test -- --watch=false
     const afterRunner = trimmed
       .replace(
-        /^(?:npm\s+(?:run\s+)?test(?:s)?|pnpm\s+(?:run\s+)?test(?:s)?|yarn\s+test|bun\s+test|vitest(?:\s+run)?|jest|pytest|go\s+test|cargo\s+test|deno\s+test)\s*/i,
+        /^(?:npm\s+(?:run\s+)?test(?:s)?|pnpm\s+(?:run\s+)?test(?:s)?|yarn\s+test|bun\s+test|node\s+--test|vitest(?:\s+run)?|jest|pytest|go\s+test|cargo\s+test|deno\s+test)\s*/i,
         '',
       )
       .trim();
