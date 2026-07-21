@@ -6,6 +6,7 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
 } from '@earendil-works/pi-coding-agent';
+import { buildCommandCheck, classifyCheckCommand } from '../src/checks.ts';
 import { loadConfig } from '../src/config.ts';
 import { buildInjectContext } from '../src/inject.ts';
 import { initSkeg } from '../src/init.ts';
@@ -30,6 +31,7 @@ import {
   latestRunFromEntries,
   resolveGate,
   setPhase,
+  upsertCheck,
 } from '../src/run.ts';
 import { RUN_ENTRY_TYPE, type RunState, type SkegConfig } from '../src/types.ts';
 
@@ -150,15 +152,47 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    // bash 成功且涉及风险路径时也记账
-    if (tool === 'bash' && !event.isError) {
-      const paths = pathsFromToolCall(
-        event.toolName,
-        event.input as Record<string, unknown>,
-      );
-      const risky = paths.flatMap((p) => detectPathRisks(p, config));
-      if (risky.length > 0) {
-        persist(addChangedFiles(run!, paths));
+    if (tool === 'bash') {
+      const input = event.input as Record<string, unknown>;
+      const command = typeof input.command === 'string' ? input.command : '';
+
+      // command check 自动记账（成功/失败都记）
+      const classified = classifyCheckCommand(command, config);
+      if (classified) {
+        const output =
+          typeof event.content === 'string'
+            ? event.content
+            : Array.isArray(event.content)
+              ? event.content
+                  .map((c) =>
+                    typeof c === 'string'
+                      ? c
+                      : typeof c === 'object' && c && 'text' in c
+                        ? String((c as { text?: unknown }).text ?? '')
+                        : '',
+                  )
+                  .join('\n')
+              : '';
+        persist(
+          upsertCheck(
+            run!,
+            buildCommandCheck(
+              classified.name,
+              command,
+              !event.isError,
+              output,
+            ),
+          ),
+        );
+      }
+
+      // bash 成功且涉及风险路径时也记账 changedFiles
+      if (!event.isError) {
+        const paths = pathsFromToolCall(event.toolName, input);
+        const risky = paths.flatMap((p) => detectPathRisks(p, config));
+        if (risky.length > 0) {
+          persist(addChangedFiles(run!, paths));
+        }
       }
     }
 

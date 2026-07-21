@@ -13,6 +13,7 @@ import {
 /** 默认配置，与 templates/config.json 保持一致。 */
 export const DEFAULT_CONFIG: SkegConfig = {
   defaultPolicy: 'lean',
+  guidance: 'standard',
   protectedPaths: ['.env*', 'infra/prod/**'],
   migrationPaths: ['migrations/**', '**/migrations/**', '*.sql', '**/*.sql'],
   dependencyFiles: [
@@ -51,6 +52,7 @@ export function loadConfig(cwd: string): SkegConfig {
     return {
       ...DEFAULT_CONFIG,
       ...raw,
+      guidance: raw.guidance ?? DEFAULT_CONFIG.guidance,
       protectedPaths: raw.protectedPaths ?? DEFAULT_CONFIG.protectedPaths,
       migrationPaths: raw.migrationPaths ?? DEFAULT_CONFIG.migrationPaths,
       dependencyFiles: raw.dependencyFiles ?? DEFAULT_CONFIG.dependencyFiles,
@@ -63,6 +65,7 @@ export function loadConfig(cwd: string): SkegConfig {
       checks: {
         default: raw.checks?.default ?? DEFAULT_CONFIG.checks.default,
         guarded: raw.checks?.guarded ?? DEFAULT_CONFIG.checks.guarded,
+        commands: raw.checks?.commands ?? DEFAULT_CONFIG.checks.commands,
       },
     };
   } catch {

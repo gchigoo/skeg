@@ -51,8 +51,13 @@ export type RunState = {
   updatedAt: string;
 };
 
+/** Skill / 注入指导密度：与 risk 正交。 */
+export type GuidanceDensity = 'compact' | 'standard';
+
 export type SkegConfig = {
   defaultPolicy: RiskLevel;
+  /** 注入指导密度，默认 standard */
+  guidance: GuidanceDensity;
   protectedPaths: string[];
   migrationPaths: string[];
   dependencyFiles: string[];
@@ -67,6 +72,11 @@ export type SkegConfig = {
   checks: {
     default: string[];
     guarded: string[];
+    /**
+     * 可选：check 名 → 命令匹配（子串或 /regex/ 形式）。
+     * 配置优先于内置启发式。
+     */
+    commands?: Record<string, string>;
   };
 };
 

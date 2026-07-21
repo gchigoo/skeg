@@ -2,7 +2,7 @@
  * 构建 before_agent_start 注入文本，目标 ≤ 800 tokens。
  */
 import { loadProjectSummary } from './config.ts';
-import type { RunState, SkegConfig } from './types.ts';
+import type { Phase, RunState, SkegConfig } from './types.ts';
 
 /**
  * 估算文本 token 数（与 scripts/check-budgets.mjs 同启发式）。
@@ -13,6 +13,29 @@ export function estimateTokens(text: string): number {
   const cjk = text.match(/[\u3000-\u9fff\uf900-\ufaff\uff00-\uffef]/gu) ?? [];
   const rest = text.length - cjk.length;
   return cjk.length + Math.ceil(rest / 4);
+}
+
+/**
+ * 按阶段给出一行下一步提示（standard guidance）。
+ * @param phase 当前阶段
+ * @param missing 尚未通过的期望 checks
+ * @returns 提示文本
+ */
+function phaseHint(phase: Phase, missing: string[]): string {
+  switch (phase) {
+    case 'orient':
+      return 'Next: clarify scope, then edit; keep lean unless risk triggers.';
+    case 'change':
+      return 'Next: finish edits, then run targeted checks before /finish.';
+    case 'prove':
+      return missing.length > 0
+        ? `Next: satisfy checks due (${missing.join(', ')}) then /finish.`
+        : 'Next: checks look complete; /finish when ready.';
+    case 'close':
+      return 'Next: run is closing; /record only if worth keeping.';
+    default:
+      return 'Next: continue the run; escalate only on risk.';
+  }
 }
 
 /**
@@ -35,14 +58,14 @@ export function buildInjectContext(
     ].join('\n');
   }
 
-  const pending = run.checks
-    .filter((c) => !c.passed)
-    .map((c) => c.name);
+  const pending = run.checks.filter((c) => !c.passed).map((c) => c.name);
   const expected =
     run.risk === 'guarded' ? config.checks.guarded : config.checks.default;
   const missing = expected.filter(
     (name) => !run.checks.some((c) => c.name === name && c.passed),
   );
+
+  const compact = config.guidance === 'compact';
 
   const lines = [
     'Skeg run (compact):',
@@ -59,18 +82,21 @@ export function buildInjectContext(
     );
   }
 
-  lines.push(
-    'Rules: prove with evidence; no design docs by default; escalate only on risk.',
-  );
-
-  if (pending.length > 0) {
+  if (!compact) {
+    lines.push(
+      'Rules: prove with evidence; no design docs by default; escalate only on risk.',
+    );
+    lines.push(phaseHint(run.phase, missing));
+    if (pending.length > 0) {
+      lines.push(`Failed checks: ${pending.join(', ')}`);
+    }
+    const summary = loadProjectSummary(cwd, 280);
+    if (summary) {
+      lines.push('Project:');
+      lines.push(summary);
+    }
+  } else if (pending.length > 0) {
     lines.push(`Failed checks: ${pending.join(', ')}`);
-  }
-
-  const summary = loadProjectSummary(cwd, 280);
-  if (summary) {
-    lines.push('Project:');
-    lines.push(summary);
   }
 
   let text = lines.join('\n');

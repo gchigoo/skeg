@@ -1,20 +1,20 @@
 /**
- * Skeg v0.1 dogfood harness：用宿主无关内核模拟 10 个任务并验收硬指标。
+ * Skeg dogfood harness：用宿主无关内核模拟场景并验收硬指标。
  *
  * 用法：node --experimental-strip-types dogfood/run.ts
  *
  * 自动验收：
- * - 注入上下文 ≤ 800 tokens
+ * - 注入上下文 ≤ 800 tokens（compact / standard）
  * - lean：0 artifact、0 未解决 gate
  * - 确定性 trigger gate 触发率 100%
  * - /run → 首次编辑工具调用次数中位数 ≤ 4
  * - RunState 可经 entries 恢复且 /status 可读
- *
- * 人工补测（Pi 实机）：在真实 Pi session 复跑同类任务，确认 UX 与自动结果一致。
+ * - command check 自动记账正确；非验证命令误记账 = 0
  */
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildCommandCheck, classifyCheckCommand } from '../src/checks.ts';
 import { DEFAULT_CONFIG } from '../src/config.ts';
 import { buildInjectContext, estimateTokens } from '../src/inject.ts';
 import { runProveChecks } from '../src/prove.ts';
@@ -27,8 +27,9 @@ import {
   formatStatus,
   latestRunFromEntries,
   setPhase,
+  upsertCheck,
 } from '../src/run.ts';
-import type { RunState } from '../src/types.ts';
+import type { RunState, SkegConfig } from '../src/types.ts';
 import { SCENARIOS, type Scenario, type SimulatedTool } from './scenarios.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -59,13 +60,42 @@ function toToolCall(tool: SimulatedTool): [string, Record<string, unknown>] {
 }
 
 /**
+ * 模拟 bash tool_result 的 command check 记账。
+ * @param run 当前 run
+ * @param tool 模拟 bash
+ * @param config 配置
+ * @returns 更新后的 run
+ */
+function applyBashCheck(
+  run: RunState,
+  tool: SimulatedTool,
+  config: SkegConfig,
+): RunState {
+  if (tool.tool !== 'bash' || !tool.command) return run;
+  const classified = classifyCheckCommand(tool.command, config);
+  if (!classified) return run;
+  return upsertCheck(
+    run,
+    buildCommandCheck(
+      classified.name,
+      tool.command,
+      !tool.isError,
+      tool.output,
+    ),
+  );
+}
+
+/**
  * 跑单个场景。
  * @param scenario 场景
  * @returns 结果
  */
 function runScenario(scenario: Scenario): ScenarioResult {
   const failures: string[] = [];
-  const config = { ...DEFAULT_CONFIG };
+  const config: SkegConfig = {
+    ...DEFAULT_CONFIG,
+    guidance: scenario.guidance ?? DEFAULT_CONFIG.guidance,
+  };
   let run = createRun(scenario.intent, config.defaultPolicy);
   const entries: Array<{ type: string; customType: string; data: RunState }> = [];
 
@@ -75,16 +105,25 @@ function runScenario(scenario: Scenario): ScenarioResult {
   };
 
   const toolsBefore = scenario.toolsBeforeFirstEdit.length;
-  if (toolsBefore > MAX_MEDIAN_TOOLS) {
+  // 仅对 v0.1 基线场景（fix/feature/risk）施加中位数预算；check/guidance 不计入
+  if (
+    (scenario.kind === 'fix' ||
+      scenario.kind === 'feature' ||
+      scenario.kind === 'risk') &&
+    toolsBefore > MAX_MEDIAN_TOOLS
+  ) {
     failures.push(
       `tools before first edit = ${toolsBefore} > ${MAX_MEDIAN_TOOLS}`,
     );
   }
 
-  // 模拟 orient 读取（不触发写风险）
+  // 模拟 orient 读取；bash 也可能触发 check 记账（如误记检测）
   for (const tool of scenario.toolsBeforeFirstEdit) {
     const [name, input] = toToolCall(tool);
-    scanToolCall(name, input, config); // 只读路径不应升级
+    scanToolCall(name, input, config);
+    if (tool.tool === 'bash') {
+      persist(applyBashCheck(run, tool, config));
+    }
   }
 
   let gateHit: string | undefined;
@@ -104,15 +143,18 @@ function runScenario(scenario: Scenario): ScenarioResult {
     }
   }
 
+  for (const tool of scenario.proveCommands ?? []) {
+    persist(applyBashCheck(run, tool, config));
+  }
+
   // Prove（注入假 git）
   const proved = runProveChecks(process.cwd(), run, config, (_cwd, args) => {
     if (args[0] === 'status') {
-      return run.changedFiles.map((f) => ` M ${f}`).join('\n') + '\n';
+      return `${run.changedFiles.map((f) => ` M ${f}`).join('\n')}\n`;
     }
     if (args.includes('--name-only')) {
       return `${run.changedFiles.join('\n')}\n`;
     }
-    // 非 risk 场景给干净 diff；risk 场景给路径相关内容
     if (scenario.kind === 'risk') {
       return run.changedFiles
         .map(
@@ -136,6 +178,41 @@ function runScenario(scenario: Scenario): ScenarioResult {
     failures.push(`inject tokens ${injectTokens} > ${MAX_INJECT}`);
   }
 
+  for (const needle of scenario.expect.injectIncludes ?? []) {
+    if (!inject.includes(needle)) {
+      failures.push(`inject missing "${needle}"`);
+    }
+  }
+  for (const needle of scenario.expect.injectExcludes ?? []) {
+    if (inject.includes(needle)) {
+      failures.push(`inject unexpectedly contains "${needle}"`);
+    }
+  }
+
+  // command check 记账断言
+  if (scenario.expect.commandChecks) {
+    for (const want of scenario.expect.commandChecks) {
+      const got = run.checks.find(
+        (c) => c.kind === 'command' && c.name === want.name,
+      );
+      if (!got) {
+        failures.push(`missing command check: ${want.name}`);
+      } else if (got.passed !== want.passed) {
+        failures.push(
+          `check ${want.name} passed=${got.passed}, want ${want.passed}`,
+        );
+      }
+    }
+  }
+  if (scenario.expect.noCommandChecks) {
+    const cmds = run.checks.filter((c) => c.kind === 'command');
+    if (cmds.length > 0) {
+      failures.push(
+        `unexpected command checks: ${cmds.map((c) => c.name).join(', ')}`,
+      );
+    }
+  }
+
   // RunState 恢复
   const restored = latestRunFromEntries(entries);
   if (!restored || restored.id !== run.id || restored.intent !== scenario.intent) {
@@ -146,7 +223,7 @@ function runScenario(scenario: Scenario): ScenarioResult {
     failures.push('/status text missing intent');
   }
 
-  // lean 约束
+  // lean 约束（risk 除外）
   if (scenario.kind !== 'risk') {
     if ((run.recordIds?.length ?? 0) !== scenario.expect.artifactCount) {
       failures.push(
@@ -156,9 +233,10 @@ function runScenario(scenario: Scenario): ScenarioResult {
     if (run.pendingGate && !run.pendingGate.resolved) {
       failures.push('lean/feature unexpectedly has open gate');
     }
-    // lean 任务不应被 prove heuristic 误伤到仍算失败——允许 advisory guarded，
-    // 但 DESIGN 要求 lean：0 人工 gate。advisory 升级不算人工 gate。
-    if (scenario.expect.riskAfterEdits === 'lean' && run.riskSource === 'deterministic') {
+    if (
+      scenario.expect.riskAfterEdits === 'lean' &&
+      run.riskSource === 'deterministic'
+    ) {
       failures.push('lean task escalated by deterministic risk unexpectedly');
     }
   }
@@ -182,7 +260,6 @@ function runScenario(scenario: Scenario): ScenarioResult {
     failures.push(`unexpected gate trigger: ${gateHit}`);
   }
 
-  // close（risk 场景先视为仍 blocked，不强制 close 成功）
   if (scenario.kind !== 'risk') {
     persist(closeRun(run, 'done'));
   }
@@ -217,19 +294,34 @@ function main() {
   const fixes = SCENARIOS.filter((s) => s.kind === 'fix');
   const features = SCENARIOS.filter((s) => s.kind === 'feature');
   const risks = SCENARIOS.filter((s) => s.kind === 'risk');
+  const checks = SCENARIOS.filter((s) => s.kind === 'check');
+  const guidance = SCENARIOS.filter((s) => s.kind === 'guidance');
 
   if (fixes.length < 5 || features.length < 3 || risks.length < 2) {
     console.error('Scenario mix invalid: need ≥5 fix, ≥3 feature, ≥2 risk');
     process.exit(2);
   }
+  if (checks.length < 3 || guidance.length < 2) {
+    console.error('v0.2 mix invalid: need ≥3 check, ≥2 guidance');
+    process.exit(2);
+  }
 
   const results = SCENARIOS.map(runScenario);
-  const toolsMedian = median(results.map((r) => r.toolsBeforeFirstEdit));
+  const baseline = results.filter(
+    (r) => r.kind === 'fix' || r.kind === 'feature' || r.kind === 'risk',
+  );
+  const toolsMedian = median(baseline.map((r) => r.toolsBeforeFirstEdit));
   const riskResults = results.filter((r) => r.kind === 'risk');
   const riskHitRate =
     riskResults.length === 0
       ? 0
       : riskResults.filter((r) => r.pass).length / riskResults.length;
+
+  const checkResults = results.filter((r) => r.kind === 'check');
+  const checkPassRate =
+    checkResults.length === 0
+      ? 0
+      : checkResults.filter((r) => r.pass).length / checkResults.length;
 
   const aggregateFailures: string[] = [];
   if (toolsMedian > MAX_MEDIAN_TOOLS) {
@@ -240,6 +332,11 @@ function main() {
   if (riskHitRate < 1) {
     aggregateFailures.push(
       `deterministic trigger pass rate ${riskHitRate * 100}% < 100%`,
+    );
+  }
+  if (checkPassRate < 1) {
+    aggregateFailures.push(
+      `command-check scenario pass rate ${checkPassRate * 100}% < 100%`,
     );
   }
 
@@ -254,9 +351,10 @@ function main() {
     '',
     '## Aggregate',
     '',
-    `- scenarios: ${results.length} (fix=${fixes.length}, feature=${features.length}, risk=${risks.length})`,
-    `- median tools before first edit: ${toolsMedian} (budget ≤ ${MAX_MEDIAN_TOOLS})`,
+    `- scenarios: ${results.length} (fix=${fixes.length}, feature=${features.length}, risk=${risks.length}, check=${checks.length}, guidance=${guidance.length})`,
+    `- median tools before first edit (baseline): ${toolsMedian} (budget ≤ ${MAX_MEDIAN_TOOLS})`,
     `- deterministic risk pass rate: ${Math.round(riskHitRate * 100)}% (budget 100%)`,
+    `- command-check pass rate: ${Math.round(checkPassRate * 100)}% (budget 100%)`,
     `- max inject tokens: ${Math.max(...results.map((r) => r.injectTokens))} (budget ≤ ${MAX_INJECT})`,
     '',
     '## Scenarios',
@@ -286,6 +384,7 @@ function main() {
     'Re-run 2 lean + 1 risk scenario inside a real Pi session to confirm UX:',
     '- `/init` → `/run` → edit → `/status` → `/finish`',
     '- risk edit must show gate confirm UI',
+    '- bash `pnpm test <file>` should appear in `/status` Checks',
     '',
   );
 

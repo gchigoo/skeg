@@ -42,7 +42,25 @@ Prompt template:
 
 ## Status
 
-**v0.1.0 ready** — `npm run verify` PASS, Pi smoke PASS (`dogfood/PI_SMOKE.md`).
+**v0.2.0 ready** — `npm run verify` PASS（含 command-check 自动记账与 guidance 密度）。
+
+v0.1 Pi smoke 仍见 `dogfood/PI_SMOKE.md`。
+
+## Config highlights
+
+```json
+{
+  "guidance": "standard",
+  "checks": {
+    "default": ["targeted-test", "diff"],
+    "guarded": ["test", "typecheck", "lint", "diff"],
+    "commands": { "unit-smoke": "make smoke" }
+  }
+}
+```
+
+- bash `pnpm test src/foo.test.ts` → 自动记 `targeted-test`
+- `guidance: "compact"` → 注入仅状态行
 
 ## Design
 

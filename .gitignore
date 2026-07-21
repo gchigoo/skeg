@@ -6,11 +6,8 @@ dist/
 *.log
 .DS_Store
 
-# local planning / background (not versioned yet)
+# local planning / background
 archive/
-DESIGN.md
-NON_GOALS.md
-CHANGELOG.md
 
 # generated dogfood / smoke reports
 dogfood/LAST_RUN.md

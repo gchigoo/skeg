@@ -1,24 +1,37 @@
 /**
- * v0.1 dogfood 场景：5 小修复 + 3 普通功能 + 2 确定性 riskTrigger。
+ * dogfood 场景：v0.1 基线（5 fix + 3 feature + 2 risk）+ v0.2 check/guidance。
  */
 
-export type ScenarioKind = 'fix' | 'feature' | 'risk';
+export type ScenarioKind = 'fix' | 'feature' | 'risk' | 'check' | 'guidance';
 
 export type SimulatedTool = {
   tool: 'read' | 'write' | 'edit' | 'bash';
   path?: string;
   command?: string;
   content?: string;
+  /** bash 是否失败（仅模拟 tool_result.isError） */
+  isError?: boolean;
+  /** bash 输出片段（写入 check evidence） */
+  output?: string;
+};
+
+export type ExpectedCheck = {
+  name: string;
+  passed: boolean;
 };
 
 export type Scenario = {
   id: string;
   kind: ScenarioKind;
   intent: string;
+  /** guidance 密度覆盖（默认用 DEFAULT_CONFIG） */
+  guidance?: 'compact' | 'standard';
   /** /run 到首次 write|edit 之前的工具调用（含首次编辑本身之前的次数） */
   toolsBeforeFirstEdit: SimulatedTool[];
   /** 首次及后续写操作 */
   edits: SimulatedTool[];
+  /** 编辑后的验证 bash（用于 command check 自动记账） */
+  proveCommands?: SimulatedTool[];
   expect: {
     riskAfterEdits: 'lean' | 'guarded';
     gateTrigger?:
@@ -30,6 +43,14 @@ export type Scenario = {
     artifactCount: number;
     /** lean 任务不得残留未解决 gate */
     openGate: boolean;
+    /** 期望自动记账的 command checks */
+    commandChecks?: ExpectedCheck[];
+    /** 非验证 bash 不得写入 checks */
+    noCommandChecks?: boolean;
+    /** inject 文本必须包含 */
+    injectIncludes?: string[];
+    /** inject 文本不得包含 */
+    injectExcludes?: string[];
   };
 };
 
@@ -209,6 +230,96 @@ export const SCENARIOS: Scenario[] = [
       gateTrigger: 'dependencyChange',
       artifactCount: 0,
       openGate: true,
+    },
+  },
+  // --- v0.2: command check 自动记账 ---
+  {
+    id: 'check-01-targeted-pass',
+    kind: 'check',
+    intent: '跑目标测试并自动记账 targeted-test',
+    toolsBeforeFirstEdit: [{ tool: 'read', path: 'src/profile/load.ts' }],
+    edits: [{ tool: 'edit', path: 'src/profile/load.ts' }],
+    proveCommands: [
+      {
+        tool: 'bash',
+        command: 'pnpm test src/profile/load.test.ts',
+        output: 'PASS src/profile/load.test.ts',
+      },
+    ],
+    expect: {
+      riskAfterEdits: 'lean',
+      artifactCount: 0,
+      openGate: false,
+      commandChecks: [{ name: 'targeted-test', passed: true }],
+    },
+  },
+  {
+    id: 'check-02-bare-fail',
+    kind: 'check',
+    intent: '裸跑 npm test 失败时记账 test=fail',
+    toolsBeforeFirstEdit: [{ tool: 'read', path: 'src/ui/formatDate.ts' }],
+    edits: [{ tool: 'edit', path: 'src/ui/formatDate.ts' }],
+    proveCommands: [
+      {
+        tool: 'bash',
+        command: 'npm test',
+        isError: true,
+        output: 'FAIL suite',
+      },
+    ],
+    expect: {
+      riskAfterEdits: 'lean',
+      artifactCount: 0,
+      openGate: false,
+      commandChecks: [{ name: 'test', passed: false }],
+    },
+  },
+  {
+    id: 'check-03-non-verify-ignored',
+    kind: 'check',
+    intent: '非验证 bash 不得误记账',
+    toolsBeforeFirstEdit: [
+      { tool: 'read', path: 'src/orders/List.tsx' },
+      { tool: 'bash', command: 'rg -n FilterChip src' },
+      { tool: 'bash', command: 'ls src/orders' },
+    ],
+    edits: [{ tool: 'edit', path: 'src/orders/List.tsx' }],
+    proveCommands: [{ tool: 'bash', command: 'git status' }],
+    expect: {
+      riskAfterEdits: 'lean',
+      artifactCount: 0,
+      openGate: false,
+      noCommandChecks: true,
+    },
+  },
+  // --- v0.2: guidance 密度 ---
+  {
+    id: 'guidance-01-compact',
+    kind: 'guidance',
+    guidance: 'compact',
+    intent: 'compact 注入仅状态行',
+    toolsBeforeFirstEdit: [{ tool: 'read', path: 'src/settings/copy.ts' }],
+    edits: [{ tool: 'edit', path: 'src/settings/copy.ts' }],
+    expect: {
+      riskAfterEdits: 'lean',
+      artifactCount: 0,
+      openGate: false,
+      injectIncludes: ['Intent:', 'Checks due:'],
+      injectExcludes: ['Rules:', 'Next:'],
+    },
+  },
+  {
+    id: 'guidance-02-standard',
+    kind: 'guidance',
+    guidance: 'standard',
+    intent: 'standard 注入含 Rules 与 Next',
+    toolsBeforeFirstEdit: [{ tool: 'read', path: 'src/settings/copy.ts' }],
+    edits: [{ tool: 'edit', path: 'src/settings/copy.ts' }],
+    expect: {
+      riskAfterEdits: 'lean',
+      artifactCount: 0,
+      openGate: false,
+      injectIncludes: ['Rules:', 'Next:'],
     },
   },
 ];

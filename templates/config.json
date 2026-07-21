@@ -1,5 +1,6 @@
 {
   "defaultPolicy": "lean",
+  "guidance": "standard",
   "protectedPaths": [".env*", "infra/prod/**"],
   "migrationPaths": ["migrations/**", "**/migrations/**", "*.sql", "**/*.sql"],
   "dependencyFiles": [
