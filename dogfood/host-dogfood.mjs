@@ -1,30 +1,69 @@
 /**
- * 真实宿主 dogfood：在指定项目 cwd 上跑 ≥10 个 Skeg run，写 FRICTION.md。
+ * 真实宿主 dogfood：按 profile 在指定项目 cwd 上跑 ≥10 个 Skeg run，追加 FRICTION.md。
  *
  * 用法：
  *   node dogfood/host-dogfood.mjs --cwd D:/Projects/ado-bug-agent
+ *   node dogfood/host-dogfood.mjs --cwd . --profile skeg
+ *   node dogfood/host-dogfood.mjs --cwd <project> --profile ./dogfood/profiles/custom.json
  */
 import { spawn } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SKEG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
-const cwdFlag = args.indexOf('--cwd');
-if (cwdFlag < 0 || !args[cwdFlag + 1]) {
-  console.error('Usage: node dogfood/host-dogfood.mjs --cwd <project>');
+
+/**
+ * @param {string} flag
+ * @returns {string | undefined}
+ */
+function flagValue(flag) {
+  const i = args.indexOf(flag);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+
+const cwdArg = flagValue('--cwd');
+if (!cwdArg) {
+  console.error(
+    'Usage: node dogfood/host-dogfood.mjs --cwd <project> [--profile <name|path>]',
+  );
   process.exit(2);
 }
-const HOST = resolve(args[cwdFlag + 1]);
+const HOST = resolve(cwdArg);
 const TIMEOUT_MS = 180_000;
 const MODEL = process.env.SKEG_SMOKE_MODEL || 'deepseek/deepseek-v4-flash';
+
+/**
+ * 解析 profile 路径：名称 → dogfood/profiles/<name>.json，或绝对/相对路径。
+ * @param {string | undefined} raw
+ * @param {string} host
+ * @returns {string}
+ */
+function resolveProfilePath(raw, host) {
+  if (raw) {
+    if (existsSync(raw)) return resolve(raw);
+    const named = join(SKEG_ROOT, 'dogfood', 'profiles', `${raw}.json`);
+    if (existsSync(named)) return named;
+    throw new Error(`Profile not found: ${raw}`);
+  }
+  // 默认：按宿主目录名匹配，否则 generic 失败提示
+  const guess = basename(host);
+  const named = join(SKEG_ROOT, 'dogfood', 'profiles', `${guess}.json`);
+  if (existsSync(named)) return named;
+  throw new Error(
+    `No --profile and no dogfood/profiles/${guess}.json; pass --profile skeg|ado-bug-agent|<path>`,
+  );
+}
+
+const PROFILE_PATH = resolveProfilePath(flagValue('--profile'), HOST);
+/** @type {any} */
+const PROFILE = JSON.parse(readFileSync(PROFILE_PATH, 'utf8'));
 
 /** @typedef {{ type: string, [k: string]: unknown }} RpcMsg */
 
@@ -272,6 +311,7 @@ class PiRpc {
  *     gateTrigger?: string,
  *     recordsInjected?: boolean,
  *     checkName?: string,
+ *     phaseNotOrient?: boolean,
  *   },
  *   finish?: boolean,
  *   abandon?: boolean,
@@ -279,180 +319,182 @@ class PiRpc {
  * }} Scenario
  */
 
-/** @type {Scenario[]} */
-const SCENARIOS = [
-  {
-    id: 'df-01-project-md',
-    intent: 'Fill .skeg/project.md for ado-bug-agent stack and commands',
-    work: [
-      'Edit ONLY .skeg/project.md with this content (overwrite):',
-      '',
-      '# Project',
-      '',
-      '## Stack',
-      'Node.js 18+ CommonJS MCP plugin for Azure DevOps Bug workflow.',
-      '',
-      '## Commands',
-      '- test: npm test',
-      '- check: npm run check',
-      '- targeted: node --test tests/<file>.js',
-      '- generate: npm run generate',
-      '',
-      '## Boundaries',
-      '- Never commit PAT/credentials (.ado-bug-agent/credentials.json).',
-      '- Keep mcp/ado-bug-agent-mcp.js as the stable entrypoint.',
-      '- Do not hand-edit generated host docs; use npm run generate.',
-      '',
-      '## Conventions',
-      '- Prefer existing src/ modules.',
-      '- Add targeted tests for workflow/state changes.',
-      '',
-      'Reply DONE when written.',
-    ].join('\n'),
-    expect: {
-      fileIncludes: [
-        { path: '.skeg/project.md', needle: 'npm test' },
-        { path: '.skeg/project.md', needle: 'mcp/ado-bug-agent-mcp.js' },
-      ],
+/**
+ * 从 profile 构建通用 10 场景集。
+ * @param {any} profile
+ * @returns {Scenario[]}
+ */
+function buildScenarios(profile) {
+  const projectMd = Array.isArray(profile.projectMd)
+    ? profile.projectMd.join('\n')
+    : String(profile.projectMd || '');
+  const checksJson = JSON.stringify(profile.checksCommands || {}, null, 2);
+  const authPaths = JSON.stringify(profile.authPaths || []);
+  const gitignoreLines = (profile.gitignoreEntries || ['.skeg/', '.pi/']).join(
+    '\n   ',
+  );
+  const marker = profile.dependencyMarker || 'skeg-dogfood';
+  const edit = profile.edit || {};
+
+  return [
+    {
+      id: 'df-01-project-md',
+      intent: `Fill .skeg/project.md for ${profile.name} stack and commands`,
+      work: [
+        'Edit ONLY .skeg/project.md with this content (overwrite):',
+        '',
+        projectMd,
+        '',
+        'Reply DONE when written.',
+      ].join('\n'),
+      expect: {
+        fileIncludes: [
+          { path: '.skeg/project.md', needle: profile.fullTest || 'npm test' },
+        ],
+        phaseNotOrient: true,
+      },
+      finish: true,
     },
-    finish: true,
-  },
-  {
-    id: 'df-02-checks-commands',
-    intent: 'Map node --test and npm run check into .skeg/config.json checks.commands',
-    work: [
-      'Edit ONLY .skeg/config.json.',
-      'Merge these fields into the existing JSON (keep other keys):',
-      '- "authPaths": ["src/auth/**"]',
-      '- checks.commands = {',
-      '    "targeted-test": "/node --test\\\\s+\\\\S+/",',
-      '    "test": "npm test",',
-      '    "check": "npm run check"',
-      '  }',
-      'Write valid JSON. Reply DONE.',
-    ].join('\n'),
-    expect: {
-      fileIncludes: [
-        { path: '.skeg/config.json', needle: 'node --test' },
-        { path: '.skeg/config.json', needle: 'src/auth/**' },
-      ],
+    {
+      id: 'df-02-checks-commands',
+      intent: `Map checks.commands into .skeg/config.json for ${profile.name}`,
+      work: [
+        'Edit ONLY .skeg/config.json.',
+        'Merge these fields into the existing JSON (keep other keys):',
+        `- "authPaths": ${authPaths}`,
+        `- checks.commands = ${checksJson}`,
+        'Write valid JSON. Reply DONE.',
+      ].join('\n'),
+      expect: {
+        fileIncludes: [
+          { path: '.skeg/config.json', needle: 'checks' },
+          {
+            path: '.skeg/config.json',
+            needle: Object.keys(profile.checksCommands || {})[0] || 'test',
+          },
+        ],
+        phaseNotOrient: true,
+      },
+      finish: true,
     },
-    finish: true,
-  },
-  {
-    id: 'df-03-targeted-http',
-    intent: 'Prove http-client tests with targeted node --test',
-    work: [
-      'Do exactly this and stop:',
-      '1. Read tests/http-client.js (brief).',
-      '2. Run bash: node --test tests/http-client.js',
-      '3. Do not edit files.',
-      '4. Reply DONE with the pass count.',
-    ].join('\n'),
-    expect: { checkName: 'targeted-test' },
-    finish: true,
-  },
-  {
-    id: 'df-04-full-test',
-    intent: 'Run full npm test suite as prove evidence',
-    work: [
-      'Do exactly this and stop:',
-      '1. Run bash: npm test',
-      '2. Do not edit files.',
-      '3. Reply DONE summarizing pass/fail.',
-    ].join('\n'),
-    expect: { checkName: 'test' },
-    finish: true,
-  },
-  {
-    id: 'df-05-state-machine',
-    intent: 'Orient on workflow state machine and run its tests',
-    work: [
-      'Do exactly this and stop:',
-      '1. Read src/workflow/ (find state machine module) briefly.',
-      '2. Run bash: node --test tests/state-machine.js',
-      '3. Do not edit files.',
-      '4. Reply DONE with what START_FIX blocks.',
-    ].join('\n'),
-    expect: { checkName: 'targeted-test' },
-    finish: true,
-  },
-  {
-    id: 'df-06-check-script',
-    intent: 'Run npm run check and record evidence',
-    work: [
-      'Do exactly this and stop:',
-      '1. Run bash: npm run check',
-      '2. Do not edit files.',
-      '3. Reply DONE.',
-    ].join('\n'),
-    expect: { checkName: 'check' },
-    finish: true,
-  },
-  {
-    id: 'df-07-apos-entity',
-    intent: 'Support &apos; in decodeHtmlEntities',
-    work: [
-      'Do exactly this and stop:',
-      '1. In src/util.js decodeHtmlEntities: ensure .replace(/&apos;/g, "\'") exists;',
-      '   if it already exists, leave the replace chain as-is (no extra edits needed).',
-      '2. Run bash: node --test tests/http-client.js',
-      '3. Reply DONE.',
-    ].join('\n'),
-    expect: {
-      fileIncludes: [{ path: 'src/util.js', needle: '&apos;' }],
-      checkName: 'targeted-test',
+    {
+      id: 'df-03-targeted',
+      intent: `Prove with targeted test: ${profile.targetedTest}`,
+      work: [
+        'Do exactly this and stop:',
+        `1. Run bash: ${profile.targetedTest}`,
+        '2. Do not edit files.',
+        '3. Reply DONE with the pass count.',
+      ].join('\n'),
+      expect: { checkName: 'targeted-test' },
+      finish: true,
     },
-    finish: true,
-    recordAfter:
-      'decision HTML entity decode includes apos | decodeHtmlEntities handles &apos; for ADO rich text URLs',
-  },
-  {
-    id: 'df-08-records-inject',
-    intent: 'Confirm records index appears after prior decision record',
-    work: [
-      'Do exactly this and stop:',
-      '1. Read .skeg/records/ directory listing via bash: ls .skeg/records',
-      '2. Do not edit files.',
-      '3. Reply DONE naming one DEC- id if present.',
-    ].join('\n'),
-    expect: { recordsInjected: true },
-    finish: true,
-  },
-  {
-    id: 'df-09-gitignore',
-    intent: 'Ignore .skeg and .pi local agent dirs in gitignore',
-    work: [
-      'Do exactly this and stop:',
-      '1. Edit .gitignore to append these lines if missing:',
-      '   .skeg/',
-      '   .pi/',
-      '2. Do not remove existing entries.',
-      '3. Reply DONE.',
-    ].join('\n'),
-    expect: {
-      fileIncludes: [
-        { path: '.gitignore', needle: '.skeg/' },
-        { path: '.gitignore', needle: '.pi/' },
-      ],
+    {
+      id: 'df-04-full-test',
+      intent: `Run full test suite: ${profile.fullTest}`,
+      work: [
+        'Do exactly this and stop:',
+        `1. Run bash: ${profile.fullTest}`,
+        '2. Do not edit files.',
+        '3. Reply DONE summarizing pass/fail.',
+      ].join('\n'),
+      expect: { checkName: 'test' },
+      finish: true,
     },
-    finish: true,
-  },
-  {
-    id: 'df-10-dependency-gate',
-    intent: 'Touch package.json keywords to exercise dependencyChange gate',
-    work: [
-      'Do exactly this and stop:',
-      '1. Edit package.json keywords: set/replace the skeg marker to exactly "skeg-dogfood-v03"',
-      '   (remove "skeg-dogfood" if present). This MUST modify package.json via edit/write tool.',
-      '2. Do not use bash to edit the file.',
-      '3. If a Skeg gate confirm appears, host will approve.',
-      '4. Reply DONE after the write/edit tool succeeds.',
-    ].join('\n'),
-    expect: { gateTrigger: 'dependencyChange' },
-    finish: true,
-  },
-];
+    {
+      id: 'df-05-orient-module',
+      intent: `Orient on ${profile.orientRead} and run its tests`,
+      work: [
+        'Do exactly this and stop:',
+        `1. Read ${profile.orientRead} briefly.`,
+        `2. Run bash: ${profile.orientTest}`,
+        '3. Do not edit files.',
+        '4. Reply DONE.',
+      ].join('\n'),
+      expect: { checkName: 'targeted-test' },
+      finish: true,
+    },
+    {
+      id: 'df-06-check-script',
+      intent: `Run ${profile.checkScript} and record evidence`,
+      work: [
+        'Do exactly this and stop:',
+        `1. Run bash: ${profile.checkScript}`,
+        '2. Do not edit files.',
+        '3. Reply DONE.',
+      ].join('\n'),
+      expect: {
+        checkName:
+          Object.keys(profile.checksCommands || {}).find((k) =>
+            String(profile.checksCommands[k]).includes(
+              String(profile.checkScript).split(' ').slice(-1)[0],
+            ),
+          ) || 'typecheck',
+      },
+      finish: true,
+    },
+    {
+      id: 'df-07-edit-and-test',
+      intent: `Edit ${edit.path || 'a source file'} and prove with targeted test`,
+      work: Array.isArray(edit.work)
+        ? edit.work.join('\n')
+        : String(edit.work || 'Reply DONE.'),
+      expect: {
+        fileIncludes: edit.path
+          ? [{ path: edit.path, needle: edit.needle || '' }]
+          : [],
+        checkName: 'targeted-test',
+        phaseNotOrient: true,
+      },
+      finish: true,
+      recordAfter: edit.recordAfter,
+    },
+    {
+      id: 'df-08-records-inject',
+      intent: 'Confirm records index appears after prior decision/incident record',
+      work: [
+        'Do exactly this and stop:',
+        '1. Read .skeg/records/ directory listing via bash: ls .skeg/records',
+        '2. Do not edit files.',
+        '3. Reply DONE naming one DEC-/INC-/MIG- id if present.',
+      ].join('\n'),
+      expect: { recordsInjected: true },
+      finish: true,
+    },
+    {
+      id: 'df-09-gitignore',
+      intent: 'Ignore local agent dirs in gitignore',
+      work: [
+        'Do exactly this and stop:',
+        '1. Edit .gitignore to append these lines if missing:',
+        `   ${gitignoreLines}`,
+        '2. Do not remove existing entries.',
+        '3. Reply DONE.',
+      ].join('\n'),
+      expect: {
+        fileIncludes: (profile.gitignoreEntries || ['.skeg/', '.pi/']).map(
+          (needle) => ({ path: '.gitignore', needle }),
+        ),
+        phaseNotOrient: true,
+      },
+      finish: true,
+    },
+    {
+      id: 'df-10-dependency-gate',
+      intent: 'Touch package.json keywords to exercise dependencyChange gate',
+      work: [
+        'Do exactly this and stop:',
+        `1. Edit package.json keywords: set/replace the skeg marker to exactly "${marker}"`,
+        '   (remove prior skeg-dogfood* markers if present). This MUST modify package.json via edit/write tool.',
+        '2. Do not use bash to edit the file.',
+        '3. If a Skeg gate confirm appears, host will approve.',
+        '4. Reply DONE after the write/edit tool succeeds.',
+      ].join('\n'),
+      expect: { gateTrigger: 'dependencyChange', phaseNotOrient: true },
+      finish: true,
+    },
+  ];
+}
 
 /**
  * @param {PiRpc} pi
@@ -490,6 +532,7 @@ async function runScenario(pi, scenario) {
   }
 
   for (const file of scenario.expect?.fileIncludes ?? []) {
+    if (!file.needle) continue;
     const full = join(HOST, file.path);
     const text = existsSync(full) ? readFileSync(full, 'utf8') : '';
     if (!text.includes(file.needle)) {
@@ -501,11 +544,15 @@ async function runScenario(pi, scenario) {
   if (scenario.expect?.recordsInjected) {
     const contexts = await pi.getSkegContexts();
     const hit = contexts.some(
-      (c) => /Records\s*\(\.skeg\/records\/\)/.test(c) && /DEC-\d+|INC-\d+|MIG-\d+/.test(c),
+      (c) =>
+        /Records\s*\(\.skeg\/records\/\)/.test(c) &&
+        /DEC-\d+|INC-\d+|MIG-\d+/.test(c),
     );
     if (!hit) {
       pass = false;
-      frictions.push(`major|records index not injected (contexts=${contexts.length})`);
+      frictions.push(
+        `major|records index not injected (contexts=${contexts.length})`,
+      );
     }
   }
 
@@ -519,29 +566,23 @@ async function runScenario(pi, scenario) {
     }
   }
   if (scenario.expect?.checkName) {
-    const re = new RegExp(
-      `${scenario.expect.checkName}\\s*[:=]\\s*(ok|pass|true|fail)`,
-      'i',
-    );
-    // status format: Checks: pass:name or name:ok
     const loose = new RegExp(scenario.expect.checkName, 'i');
     if (!loose.test(status)) {
       pass = false;
       frictions.push(
         `major|expected check ${scenario.expect.checkName} in /status: ${status.replace(/\n/g, ' | ').slice(0, 220)}`,
       );
-    } else if (!re.test(status) && !/pass:|ok|fail/i.test(status)) {
-      frictions.push(
-        `nit|/status has check name but unclear pass marker: ${status.replace(/\n/g, ' | ').slice(0, 160)}`,
-      );
     }
   }
 
   // Friction probe: phase advanced after edits?
-  if ((scenario.expect?.fileIncludes?.length ?? 0) > 0) {
+  if (
+    scenario.expect?.phaseNotOrient ||
+    (scenario.expect?.fileIncludes?.length ?? 0) > 0
+  ) {
     if (/Phase:\s*orient/i.test(status)) {
       frictions.push(
-        'minor|phase stayed orient after file edits (tool_result path accounting?)',
+        'minor|phase stayed orient after file edits (tool_result/agent_end heal?)',
       );
     }
   }
@@ -575,11 +616,45 @@ async function runScenario(pi, scenario) {
 }
 
 /**
- * 写 FRICTION.md 汇总。
- * @param {Array<{id: string, intent: string, pass: boolean, frictions: string[]}>} results
+ * 统计已有 Round 段落数。
+ * @param {string} text
+ * @returns {number}
  */
-function writeFriction(results) {
+function countRounds(text) {
+  const a = text.match(/^## Round \d+/gm) || [];
+  const b = text.match(/^## Log（Round \d+/gm) || [];
+  return a.length + b.length;
+}
+
+/**
+ * 追加 Round 段落到 FRICTION.md（保留历史）。
+ * @param {Array<{id: string, intent: string, pass: boolean, frictions: string[]}>} results
+ * @param {string} hostName
+ * @param {number} round
+ */
+function appendFriction(results, hostName, round) {
   const date = new Date().toISOString().slice(0, 10);
+  const path = join(SKEG_ROOT, 'dogfood', 'FRICTION.md');
+  const header = [
+    '# Skeg 真实使用摩擦日志',
+    '',
+    '目标：真实 run 记录摩擦点，凭证据决策后续候选。',
+    '',
+    '## 怎么记',
+    '',
+    '1. 项目内：`pi install -l /path/to/skeg` → `/init`',
+    '2. 每个真实任务：`/run <intent>` → 工作 → `/status` → `/finish`；值得留的用 `/record`',
+    '3. 本文件追加 Round；无摩擦也记 `摩擦点=none`，仍计 1 个 run',
+    '4. 严重度：`blocker` / `major` / `minor` / `nit` / `none`',
+    '5. 宿主批量：`npm run dogfood:host -- --cwd <project> [--profile <name>]`',
+    '',
+  ].join('\n');
+
+  let existing = existsSync(path) ? readFileSync(path, 'utf8') : header;
+  if (!existing.includes('# Skeg')) {
+    existing = header + existing;
+  }
+
   const rows = results.map((r) => {
     const primary = r.frictions[0] || 'none|';
     const [severity, ...rest] = primary.split('|');
@@ -588,58 +663,44 @@ function writeFriction(results) {
       r.frictions.length > 1
         ? ` (+${r.frictions.length - 1}: ${r.frictions.slice(1).join('; ')})`
         : '';
-    return `| ${date} | ado-bug-agent | ${r.intent.replace(/\|/g, '/')} | ${r.id}: ${note}${extra} | ${severity} | ${r.pass ? 'keep' : 'investigate'} |`;
+    return `| ${date} | ${hostName} | ${r.intent.replace(/\|/g, '/')} | ${r.id}: ${note}${extra} | ${severity} | ${r.pass ? 'keep' : 'investigate'} |`;
   });
 
-  const path = join(SKEG_ROOT, 'dogfood', 'FRICTION.md');
-  const body = [
-    '# Skeg 真实使用摩擦日志',
-    '',
-    '目标：v0.3 期间完成 ≥ 10 个真实 run，记录摩擦点，凭证据决策 v0.4 候选。',
-    '',
-    '## 怎么记',
-    '',
-    '1. 项目内：`pi install -l /path/to/skeg` → `/init`',
-    '2. 每个真实任务：`/run <intent>` → 工作 → `/status` → `/finish`；值得留的用 `/record`',
-    '3. 本文件追加一行；无摩擦也记 `摩擦点=none`，仍计 1 个 run',
-    '4. 严重度：`blocker` / `major` / `minor` / `nit` / `none`',
-    '',
-    '## Log',
+  const phaseStuck = results.filter((r) =>
+    r.frictions.some((f) => /phase stayed orient/i.test(f)),
+  ).length;
+
+  const section = [
+    `## Round ${round}（${hostName}，${date}）`,
     '',
     '| 日期 | 项目 | run 意图 | 摩擦点 | 严重度 | 候选修复 |',
     '| --- | --- | --- | --- | --- | --- |',
     ...rows,
     '',
     `真实 run 计数：${results.length} / 10`,
+    `phase stayed orient：${phaseStuck}`,
     '',
-    '## Host dogfood summary',
+    '### Host dogfood summary',
     '',
     `- host: ${HOST}`,
+    `- profile: ${PROFILE_PATH}`,
     `- model: ${MODEL}`,
     `- passed: ${results.filter((r) => r.pass).length}/${results.length}`,
     `- date: ${new Date().toISOString()}`,
     '',
-    '## 候选证据：skeg-strict',
+    '### 候选证据快照',
     '',
-    `- 证据：guarded/dependency gate 在 df-10 的表现见上表；${
+    `- skeg-strict: ${
       results.find((r) => r.id === 'df-10-dependency-gate')?.pass
-        ? 'gate 触发正常，尚未看到需要更严默认策略的需求'
-        : 'gate 行为异常，需复查'
+        ? 'gate 正常；暂无更严默认策略诉求 → no-go'
+        : 'gate 异常，需复查'
     }`,
-    '- 结论：暂 no-go（证据不足支持更严可选包）',
-    '',
-    '## 候选证据：mission',
-    '',
-    '- 证据：本次 10 run 均单 session 完成，无跨 session 恢复需求',
-    '- 结论：暂 no-go',
-    '',
-    '## 候选证据：review check',
-    '',
-    '- 证据：本次无独立审查需求；prove 的 command/diff 足够覆盖验证',
-    '- 结论：暂 no-go',
+    '- mission: 单 session 完成 → no-go',
+    '- review check: prove command/diff 覆盖 → no-go',
     '',
   ].join('\n');
-  writeFileSync(path, body, 'utf8');
+
+  writeFileSync(path, `${existing.trimEnd()}\n\n${section}`, 'utf8');
   return path;
 }
 
@@ -649,14 +710,16 @@ async function main() {
     process.exit(2);
   }
   ensurePiPackage(HOST);
-  console.log(`Host:  ${HOST}`);
-  console.log(`Skeg:  ${SKEG_ROOT}`);
-  console.log(`Model: ${MODEL}`);
+  const scenarios = buildScenarios(PROFILE);
+  console.log(`Host:    ${HOST}`);
+  console.log(`Skeg:    ${SKEG_ROOT}`);
+  console.log(`Profile: ${PROFILE_PATH}`);
+  console.log(`Model:   ${MODEL}`);
+  console.log(`Scenarios: ${scenarios.length}`);
 
   const pi = new PiRpc(HOST);
   await pi.start();
 
-  // /init once
   pi.notifies = [];
   await pi.prompt('/init --force');
   console.log(
@@ -666,7 +729,7 @@ async function main() {
 
   /** @type {Awaited<ReturnType<typeof runScenario>>[]} */
   const results = [];
-  for (const scenario of SCENARIOS) {
+  for (const scenario of scenarios) {
     console.log(`\n=== ${scenario.id} ===`);
     try {
       const result = await runScenario(pi, scenario);
@@ -684,7 +747,6 @@ async function main() {
         status: '',
       });
       console.log(`FAIL  ${scenario.id} — ${message}`);
-      // 尝试清掉卡住的 run
       try {
         await pi.prompt('/run --abandon');
       } catch {
@@ -697,18 +759,27 @@ async function main() {
   console.log(`\nRunState entries: ${runs.length}`);
   await pi.stop();
 
-  const frictionPath = writeFriction(results);
+  const frictionPath = join(SKEG_ROOT, 'dogfood', 'FRICTION.md');
+  const prior = existsSync(frictionPath)
+    ? readFileSync(frictionPath, 'utf8')
+    : '';
+  const round = countRounds(prior) + 1;
+  const written = appendFriction(results, PROFILE.name || basename(HOST), round);
+
   const reportPath = join(SKEG_ROOT, 'dogfood', 'HOST_DOGFOOD.md');
   writeFileSync(
     reportPath,
     [
-      '# Skeg host dogfood (ado-bug-agent)',
+      `# Skeg host dogfood (${PROFILE.name || basename(HOST)})`,
       '',
       `Date: ${new Date().toISOString()}`,
       `Host: ${HOST}`,
+      `Profile: ${PROFILE_PATH}`,
       `Model: ${MODEL}`,
+      `Round: ${round}`,
       `Result: ${results.every((r) => r.pass) ? 'PASS' : 'FAIL'}`,
       `Runs: ${results.length}`,
+      `phase stayed orient: ${results.filter((r) => r.frictions.some((f) => /phase stayed orient/i.test(f))).length}`,
       '',
       '| id | pass | frictions |',
       '| --- | --- | --- |',
@@ -717,12 +788,12 @@ async function main() {
           `| ${r.id} | ${r.pass ? 'yes' : 'NO'} | ${r.frictions.join('; ').replace(/\|/g, '/')} |`,
       ),
       '',
-      `Friction log: ${frictionPath}`,
+      `Friction log: ${written}`,
       '',
     ].join('\n'),
   );
 
-  console.log(`\nWrote ${frictionPath}`);
+  console.log(`\nAppended Round ${round} → ${written}`);
   console.log(`Wrote ${reportPath}`);
   process.exit(results.every((r) => r.pass) ? 0 : 1);
 }

@@ -3,7 +3,7 @@
  * 用法：在沙箱 cwd 下 node dogfood/pi-smoke.mjs
  * 或：node dogfood/pi-smoke.mjs --cwd /path/to/sandbox
  */
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import {
   mkdirSync,
   writeFileSync,
@@ -57,7 +57,12 @@ function ensureSandbox(root) {
   if (!existsSync(join(root, 'src/settings/copy.ts'))) {
     writeFileSync(
       join(root, 'src/settings/copy.ts'),
-      "export const SAVE_LABEL = 'Savve settings';\n",
+      [
+        "// typo fixture: fix DEFAULT only (avoid export-line public-api heuristic)",
+        "const DEFAULT = 'Savve settings';",
+        'export const SAVE_LABEL = DEFAULT;',
+        '',
+      ].join('\n'),
     );
   }
   if (!existsSync(join(root, 'migrations/001_init.sql'))) {
@@ -71,6 +76,43 @@ function ensureSandbox(root) {
     join(root, '.pi/settings.json'),
     JSON.stringify({ packages: [SKEG_ROOT] }, null, 2),
   );
+
+  // 初始化 git，便于 agent_end healChangedFilesFromGit 兜底
+  if (!existsSync(join(root, '.git'))) {
+    try {
+      execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
+      commitSandbox(root, 'smoke fixture');
+    } catch {
+      /* git optional for basic UX checks */
+    }
+  }
+}
+
+/**
+ * 提交沙箱当前变更，隔离后续 run 的 git heal 范围。
+ * @param {string} root
+ * @param {string} message
+ */
+function commitSandbox(root, message) {
+  try {
+    execFileSync('git', ['add', '-A'], { cwd: root, stdio: 'ignore' });
+    execFileSync(
+      'git',
+      [
+        '-c',
+        'user.email=skeg@smoke.local',
+        '-c',
+        'user.name=skeg-smoke',
+        'commit',
+        '-m',
+        message,
+        '--allow-empty',
+      ],
+      { cwd: root, stdio: 'ignore' },
+    );
+  } catch {
+    /* ignore */
+  }
 }
 
 class PiRpc {
@@ -447,6 +489,11 @@ async function main() {
     /Intent:.*redirect/i.test(status1) && /Risk:\s*lean/i.test(status1),
     status1.replace(/\n/g, ' | ').slice(0, 200),
   );
+  record(
+    'lean1 phase advanced after edit',
+    !/Phase:\s*orient/i.test(status1) && /Files:\s*(?!(\(none\)))/i.test(status1),
+    status1.replace(/\n/g, ' | ').slice(0, 200),
+  );
 
   pi.notifies = [];
   await pi.prompt('/finish');
@@ -457,6 +504,7 @@ async function main() {
       /Intent:.*redirect/i.test(finish1),
     finish1.replace(/\n/g, ' | ').slice(0, 200),
   );
+  commitSandbox(SANDBOX, 'after lean1');
 
   // ========== lean 2: typo copy（避免 sensitive-keywords 误升 guarded）==========
   pi.notifies = [];
@@ -470,8 +518,9 @@ async function main() {
   await pi.prompt(
     [
       'Do exactly this and stop:',
-      '1. Edit src/settings/copy.ts and change Savve to Save:',
-      "   export const SAVE_LABEL = 'Save settings';",
+      '1. Edit ONLY the DEFAULT line in src/settings/copy.ts:',
+      "   const DEFAULT = 'Save settings';",
+      '   Keep the export line unchanged.',
       '2. Do not touch migrations, package.json, or auth files.',
       '3. Do not use words: token, password, session, permission, role.',
       '4. Reply DONE when done.',
@@ -482,7 +531,11 @@ async function main() {
     pi.uiRequests.filter((u) => u.method === 'confirm').length === 0,
   );
   const copy = readFileSync(join(SANDBOX, 'src/settings/copy.ts'), 'utf8');
-  record('lean2 file edited', /Save settings/.test(copy), 'copy.ts');
+  record(
+    'lean2 file edited',
+    /const DEFAULT = 'Save settings'/.test(copy),
+    'copy.ts',
+  );
 
   pi.notifies = [];
   await pi.prompt('/status');
@@ -493,11 +546,17 @@ async function main() {
       /Risk:\s*lean/i.test(status2),
     status2.replace(/\n/g, ' | ').slice(0, 200),
   );
+  record(
+    'lean2 phase advanced after edit',
+    !/Phase:\s*orient/i.test(status2),
+    status2.replace(/\n/g, ' | ').slice(0, 200),
+  );
 
   pi.notifies = [];
   await pi.prompt('/finish');
   const finish2 = pi.notifies.map((n) => n.message || '').join('\n');
   record('lean2 /finish closes', finish2.length > 0, finish2.slice(0, 120));
+  commitSandbox(SANDBOX, 'after lean2');
 
   // ========== risk: migration ==========
   pi.notifies = [];

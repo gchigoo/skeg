@@ -42,12 +42,13 @@ Prompt template:
 
 ## Status
 
-**v0.3.0 ready** — Record 回读；ado-bug-agent 宿主 dogfood 10/10 PASS；摩擦驱动修复（绝对路径 risk、`node --test` 记账）。
+**v0.3.1 ready** — phase 记账修复（bash 写文件 + agent_end git 自愈）；host dogfood 多 profile；Round 3/4 真实宿主 `phase stayed orient = 0`。
 
 ```bash
 npm run verify
 npm run smoke
-npm run dogfood:host -- --cwd /path/to/real-project
+npm run dogfood:host -- --cwd . --profile skeg
+npm run dogfood:host -- --cwd /path/to/real-project --profile ado-bug-agent
 ```
 
 ## Config highlights
@@ -72,7 +73,7 @@ npm run dogfood:host -- --cwd /path/to/real-project
 npm install
 npm run verify    # test + typecheck + budgets + dogfood
 npm run smoke     # Pi 实机抽测（需本机已装 pi）
-npm run dogfood:host -- --cwd /path/to/real-project
+npm run dogfood:host -- --cwd /path/to/real-project --profile <name>
 ```
 
 Design notes (`DESIGN.md` / `NON_GOALS.md` / `CHANGELOG.md`) and dogfood reports stay local (gitignored).

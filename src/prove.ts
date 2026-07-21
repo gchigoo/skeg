@@ -213,6 +213,26 @@ export function analyzeProveSnapshot(
 }
 
 /**
+ * 当 phase 卡在 orient 或未记账 changedFiles 时，用 git 工作区变更自愈。
+ * @param cwd 项目根
+ * @param run 当前 run
+ * @param execGit 可注入 git 执行器
+ * @returns 可能推进 phase / 补记文件后的 run
+ */
+export function healChangedFilesFromGit(
+  cwd: string,
+  run: RunState,
+  execGit: ExecGit = defaultExecGit,
+): RunState {
+  if (run.phase !== 'orient' && run.changedFiles.length > 0) return run;
+  const snapshot = readGitDiff(cwd, execGit);
+  if (snapshot.files.length === 0) return run;
+  let next = addChangedFiles(run, snapshot.files);
+  if (next.phase === 'orient') next = setPhase(next, 'change');
+  return next;
+}
+
+/**
  * 对当前 run 执行 prove checks，写回 RunState。
  * @param cwd 项目根
  * @param run 当前 run

@@ -80,3 +80,45 @@ export function extractPathsFromCommand(command: string): string[] {
   }
   return paths;
 }
+
+/**
+ * 判断 bash 命令是否看起来在写文件（重定向 / tee / sed -i / cp / mv 等）。
+ * @param command bash 命令
+ * @returns 是否写文件
+ */
+export function isBashFileWrite(command: string): boolean {
+  const c = command.trim();
+  if (!c) return false;
+  // stdout/stderr 合并重定向；排除纯 2> stderr
+  if (/(?:^|[^0-9])>{1,2}\s*\S+/.test(c)) return true;
+  if (/\btee\b/i.test(c)) return true;
+  if (/\bsed\s+(?:-[a-zA-Z]*i|--in-place)/i.test(c)) return true;
+  if (/\b(?:cp|mv|install|truncate|touch)\b/i.test(c)) return true;
+  if (/\b(?:perl|ruby|python3?)\s+-i\b/i.test(c)) return true;
+  return false;
+}
+
+/**
+ * 从写文件类 bash 命令提取目标路径。
+ * @param command bash 命令
+ * @returns 写入路径（去重）
+ */
+export function extractBashWritePaths(command: string): string[] {
+  if (!isBashFileWrite(command)) return [];
+  const found: string[] = [];
+
+  for (const match of command.matchAll(/(?:^|[^0-9])>{1,2}\s*([^\s|&;]+)/g)) {
+    const token = match[1]?.replace(/^['"]|['"]$/g, '');
+    if (token && token !== '/dev/null') found.push(normalizePath(token));
+  }
+
+  for (const match of command.matchAll(
+    /\btee\b(?:\s+-a)?\s+([^\s|&;-][^\s|&;]*)/gi,
+  )) {
+    const token = match[1]?.replace(/^['"]|['"]$/g, '');
+    if (token) found.push(normalizePath(token));
+  }
+
+  if (found.length > 0) return [...new Set(found)];
+  return [...new Set(extractPathsFromCommand(command))];
+}

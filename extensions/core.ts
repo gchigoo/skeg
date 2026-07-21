@@ -10,7 +10,14 @@ import { buildCommandCheck, classifyCheckCommand } from '../src/checks.ts';
 import { loadConfig } from '../src/config.ts';
 import { buildInjectContext } from '../src/inject.ts';
 import { initSkeg } from '../src/init.ts';
-import { runProveChecks } from '../src/prove.ts';
+import {
+  extractBashWritePaths,
+  isBashFileWrite,
+} from '../src/paths.ts';
+import {
+  healChangedFilesFromGit,
+  runProveChecks,
+} from '../src/prove.ts';
 import { createRecord, parseRecordArgs } from '../src/record.ts';
 import {
   detectPathRisks,
@@ -91,6 +98,14 @@ export default function (pi: ExtensionAPI) {
     };
   });
 
+  /** 记账文件变更并推进 orient → change */
+  const noteFileChanges = (paths: string[]) => {
+    if (paths.length === 0 || !isOpenRun(run)) return;
+    let next = addChangedFiles(run!, paths);
+    if (next.phase === 'orient') next = setPhase(next, 'change');
+    persist(next);
+  };
+
   pi.on('tool_call', async (event, ctx) => {
     if (!isOpenRun(run)) return undefined;
 
@@ -98,11 +113,15 @@ export default function (pi: ExtensionAPI) {
       persist(clearResolvedGate(run!));
     }
 
-    const hits = scanToolCall(
-      event.toolName,
-      event.input as Record<string, unknown>,
-      config,
-    );
+    const input = event.input as Record<string, unknown>;
+    const tool = event.toolName.toLowerCase();
+
+    // 写工具在 tool_call 即记账（tool_result 偶发漏路径时的权威补充）
+    if (tool === 'write' || tool === 'edit') {
+      noteFileChanges(pathsFromToolCall(event.toolName, input));
+    }
+
+    const hits = scanToolCall(event.toolName, input, config);
     if (hits.length === 0) return undefined;
 
     const hit = hits[0];
@@ -141,15 +160,12 @@ export default function (pi: ExtensionAPI) {
 
     const tool = event.toolName.toLowerCase();
     if (tool === 'write' || tool === 'edit') {
-      const paths = pathsFromToolCall(
-        event.toolName,
-        event.input as Record<string, unknown>,
+      noteFileChanges(
+        pathsFromToolCall(
+          event.toolName,
+          event.input as Record<string, unknown>,
+        ),
       );
-      if (paths.length > 0) {
-        let next = addChangedFiles(run!, paths);
-        if (next.phase === 'orient') next = setPhase(next, 'change');
-        persist(next);
-      }
     }
 
     if (tool === 'bash') {
@@ -186,12 +202,14 @@ export default function (pi: ExtensionAPI) {
         );
       }
 
-      // bash 成功且涉及风险路径时也记账 changedFiles
+      // bash 成功：写文件命令记账；非写但命中风险路径也记账
       if (!event.isError) {
-        const paths = pathsFromToolCall(event.toolName, input);
-        const risky = paths.flatMap((p) => detectPathRisks(p, config));
-        if (risky.length > 0) {
-          persist(addChangedFiles(run!, paths));
+        if (isBashFileWrite(command)) {
+          noteFileChanges(extractBashWritePaths(command));
+        } else {
+          const paths = pathsFromToolCall(event.toolName, input);
+          const risky = paths.flatMap((p) => detectPathRisks(p, config));
+          if (risky.length > 0) noteFileChanges(paths);
         }
       }
     }
@@ -208,6 +226,11 @@ export default function (pi: ExtensionAPI) {
       );
       return;
     }
+
+    // 兜底：tool_result 漏记时用 git 工作区变更推进 phase
+    const healed = healChangedFilesFromGit(ctx.cwd, run!);
+    if (healed !== run) persist(healed);
+
     if (
       (run!.phase === 'change' || run!.phase === 'prove') &&
       run!.changedFiles.length > 0

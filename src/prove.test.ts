@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { DEFAULT_CONFIG } from './config.ts';
-import { analyzeProveSnapshot, runProveChecks } from './prove.ts';
+import {
+  analyzeProveSnapshot,
+  healChangedFilesFromGit,
+  runProveChecks,
+} from './prove.ts';
 import { createRun } from './run.ts';
 
 const SAMPLE_DIFF = `
@@ -107,5 +111,35 @@ describe('runProveChecks', () => {
     assert.equal(next.risk, 'guarded');
     assert.equal(next.riskSource, 'advisory');
     assert.ok(notes.length > 0);
+  });
+});
+
+describe('healChangedFilesFromGit', () => {
+  it('advances orient → change when git shows files', () => {
+    const run = createRun('stuck in orient');
+    assert.equal(run.phase, 'orient');
+    const next = healChangedFilesFromGit('/tmp/fake', run, (_cwd, args) => {
+      if (args[0] === 'status') return ' M .gitignore\n';
+      if (args.includes('--name-only')) return '.gitignore\n';
+      return '';
+    });
+    assert.equal(next.phase, 'change');
+    assert.ok(next.changedFiles.includes('.gitignore'));
+  });
+
+  it('no-ops when already in change with files', () => {
+    let run = createRun('already tracking');
+    run = { ...run, phase: 'change', changedFiles: ['a.ts'] };
+    const next = healChangedFilesFromGit('/tmp/fake', run, () => {
+      throw new Error('git should not be called');
+    });
+    assert.equal(next, run);
+  });
+
+  it('no-ops when git has no changes', () => {
+    const run = createRun('clean tree');
+    const next = healChangedFilesFromGit('/tmp/fake', run, () => '');
+    assert.equal(next.phase, 'orient');
+    assert.equal(next.changedFiles.length, 0);
   });
 });

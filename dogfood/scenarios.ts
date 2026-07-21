@@ -8,7 +8,8 @@ export type ScenarioKind =
   | 'risk'
   | 'check'
   | 'guidance'
-  | 'record';
+  | 'record'
+  | 'phase';
 
 export type SimulatedTool = {
   tool: 'read' | 'write' | 'edit' | 'bash';
@@ -65,6 +66,8 @@ export type Scenario = {
     injectIncludes?: string[];
     /** inject 文本不得包含 */
     injectExcludes?: string[];
+    /** 编辑后期望 phase（默认不检查） */
+    phaseAfterEdits?: 'orient' | 'change' | 'prove' | 'close';
   };
 };
 
@@ -393,6 +396,58 @@ export const SCENARIOS: Scenario[] = [
       artifactCount: 0,
       openGate: false,
       injectExcludes: ['Records'],
+    },
+  },
+  // --- v0.3.1: phase 记账 ---
+  {
+    id: 'phase-01-bash-redirect',
+    kind: 'phase',
+    intent: 'bash 重定向写文件应推进 phase 到 change',
+    toolsBeforeFirstEdit: [{ tool: 'read', path: 'src/settings/copy.ts' }],
+    edits: [
+      {
+        tool: 'bash',
+        command: 'echo note >> .gitignore',
+      },
+    ],
+    expect: {
+      riskAfterEdits: 'lean',
+      artifactCount: 0,
+      openGate: false,
+      phaseAfterEdits: 'change',
+      noCommandChecks: true,
+    },
+  },
+  {
+    id: 'phase-02-bash-sed',
+    kind: 'phase',
+    intent: 'bash sed -i 应记账并推进 phase',
+    toolsBeforeFirstEdit: [{ tool: 'read', path: 'src/util.js' }],
+    edits: [
+      {
+        tool: 'bash',
+        command: "sed -i 's/foo/bar/' src/util.js",
+      },
+    ],
+    expect: {
+      riskAfterEdits: 'lean',
+      artifactCount: 0,
+      openGate: false,
+      phaseAfterEdits: 'change',
+      noCommandChecks: true,
+    },
+  },
+  {
+    id: 'phase-03-edit-tool',
+    kind: 'phase',
+    intent: 'edit 工具应推进 phase 到 change',
+    toolsBeforeFirstEdit: [{ tool: 'read', path: 'src/settings/copy.ts' }],
+    edits: [{ tool: 'edit', path: 'src/settings/copy.ts' }],
+    expect: {
+      riskAfterEdits: 'lean',
+      artifactCount: 0,
+      openGate: false,
+      phaseAfterEdits: 'change',
     },
   },
 ];

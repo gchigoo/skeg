@@ -1,0 +1,51 @@
+{
+  "name": "skeg",
+  "projectMd": [
+    "# Project",
+    "",
+    "## Stack",
+    "TypeScript ESM Pi package: minimal engineering workflow for coding agents.",
+    "",
+    "## Commands",
+    "- test: npm test",
+    "- verify: npm run verify",
+    "- typecheck: npm run typecheck",
+    "- dogfood: npm run dogfood",
+    "- targeted: node --experimental-strip-types --test src/<file>.test.ts",
+    "",
+    "## Boundaries",
+    "- Keep core mechanisms in src/; Pi adapter only in extensions/core.ts.",
+    "- Stay under budgets: inject ≤800 tokens, core ≤800 LOC.",
+    "- Do not add subagent orchestration or multi-host adapters without evidence.",
+    "",
+    "## Conventions",
+    "- Orient → Change → Prove → Close.",
+    "- Friction-driven fixes only for patch releases."
+  ],
+  "authPaths": [],
+  "checksCommands": {
+    "targeted-test": "/node --experimental-strip-types --test\\s+\\S+/",
+    "test": "npm test",
+    "typecheck": "npm run typecheck"
+  },
+  "targetedTest": "node --experimental-strip-types --test src/paths.test.ts",
+  "fullTest": "npm test",
+  "checkScript": "npm run typecheck",
+  "orientRead": "src/prove.ts",
+  "orientTest": "node --experimental-strip-types --test src/prove.test.ts",
+  "edit": {
+    "path": "dogfood/HOST_SCRATCH.md",
+    "needle": "skeg-dogfood-v031",
+    "work": [
+      "Do exactly this and stop:",
+      "1. Write/overwrite dogfood/HOST_SCRATCH.md with exactly these two lines:",
+      "   # host scratch",
+      "   skeg-dogfood-v031",
+      "2. Run bash: node --experimental-strip-types --test src/paths.test.ts",
+      "3. Reply DONE."
+    ],
+    "recordAfter": "incident phase accounting heal | bash writes and agent_end git heal advance orient to change"
+  },
+  "gitignoreEntries": [".skeg/", ".pi/", "dogfood/HOST_SCRATCH.md"],
+  "dependencyMarker": "skeg-dogfood-v031"
+}

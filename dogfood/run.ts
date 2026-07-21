@@ -19,7 +19,14 @@ import { fileURLToPath } from 'node:url';
 import { buildCommandCheck, classifyCheckCommand } from '../src/checks.ts';
 import { DEFAULT_CONFIG } from '../src/config.ts';
 import { buildInjectContext, estimateTokens } from '../src/inject.ts';
-import { runProveChecks } from '../src/prove.ts';
+import {
+  extractBashWritePaths,
+  isBashFileWrite,
+} from '../src/paths.ts';
+import {
+  healChangedFilesFromGit,
+  runProveChecks,
+} from '../src/prove.ts';
 import { createRecord } from '../src/record.ts';
 import { requiresGate, scanToolCall } from '../src/risk.ts';
 import {
@@ -158,10 +165,45 @@ function runScenario(scenario: Scenario): ScenarioResult {
         gateHit = gate.trigger;
         persist(applyRiskHit(run, gate));
       }
-      if (edit.path) {
+      if (edit.tool === 'bash' && edit.command) {
+        persist(applyBashCheck(run, edit, config));
+        if (!edit.isError && isBashFileWrite(edit.command)) {
+          const paths = extractBashWritePaths(edit.command);
+          if (paths.length > 0) {
+            let next = addChangedFiles(run, paths);
+            if (next.phase === 'orient') next = setPhase(next, 'change');
+            persist(next);
+          }
+        }
+      } else if (edit.path) {
         let next = addChangedFiles(run, [edit.path]);
         if (next.phase === 'orient') next = setPhase(next, 'change');
         persist(next);
+      }
+    }
+
+    // agent_end 兜底：phase 仍 orient 时用假 git 自愈
+    if (run.phase === 'orient') {
+      const healed = healChangedFilesFromGit(
+        process.cwd(),
+        run,
+        (_cwd, args) => {
+          const files = run.changedFiles;
+          if (args[0] === 'status') {
+            return `${files.map((f) => ` M ${f}`).join('\n')}\n`;
+          }
+          if (args.includes('--name-only')) return `${files.join('\n')}\n`;
+          return '';
+        },
+      );
+      if (healed !== run) persist(healed);
+    }
+
+    if (scenario.expect.phaseAfterEdits) {
+      if (run.phase !== scenario.expect.phaseAfterEdits) {
+        failures.push(
+          `phaseAfterEdits=${run.phase}, want ${scenario.expect.phaseAfterEdits}`,
+        );
       }
     }
 
@@ -398,7 +440,7 @@ function main() {
     '',
     '## Aggregate',
     '',
-    `- scenarios: ${results.length} (fix=${fixes.length}, feature=${features.length}, risk=${risks.length}, check=${checks.length}, guidance=${guidance.length}, record=${records.length})`,
+    `- scenarios: ${results.length} (fix=${fixes.length}, feature=${features.length}, risk=${risks.length}, check=${checks.length}, guidance=${guidance.length}, record=${records.length}, phase=${results.filter((r) => r.kind === 'phase').length})`,
     `- median tools before first edit (baseline): ${toolsMedian} (budget ≤ ${MAX_MEDIAN_TOOLS})`,
     `- deterministic risk pass rate: ${Math.round(riskHitRate * 100)}% (budget 100%)`,
     `- command-check pass rate: ${Math.round(checkPassRate * 100)}% (budget 100%)`,
