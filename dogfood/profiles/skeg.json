@@ -22,7 +22,7 @@
     "- Orient → Change → Prove → Close.",
     "- Friction-driven fixes only for patch releases."
   ],
-  "authPaths": [],
+  "authPaths": ["dogfood/AUTH_SCRATCH.js"],
   "checksCommands": {
     "targeted-test": "/node --experimental-strip-types --test\\s+\\S+/",
     "test": "npm test",
@@ -35,17 +35,34 @@
   "orientTest": "node --experimental-strip-types --test src/prove.test.ts",
   "edit": {
     "path": "dogfood/HOST_SCRATCH.md",
-    "needle": "skeg-dogfood-v031",
+    "needle": "skeg-dogfood-v032",
     "work": [
       "Do exactly this and stop:",
       "1. Write/overwrite dogfood/HOST_SCRATCH.md with exactly these two lines:",
       "   # host scratch",
-      "   skeg-dogfood-v031",
+      "   skeg-dogfood-v032",
       "2. Run bash: node --experimental-strip-types --test src/paths.test.ts",
       "3. Reply DONE."
     ],
     "recordAfter": "incident phase accounting heal | bash writes and agent_end git heal advance orient to change"
   },
-  "gitignoreEntries": [".skeg/", ".pi/", "dogfood/HOST_SCRATCH.md"],
-  "dependencyMarker": "skeg-dogfood-v031"
+  "protectedTouch": {
+    "path": ".env.skeg-dogfood",
+    "content": "SKEG_DOGFOOD=1\n"
+  },
+  "authEdit": {
+    "path": "dogfood/AUTH_SCRATCH.js",
+    "needle": "skeg-dogfood-auth-v032",
+    "work": [
+      "Do exactly this and stop:",
+      "1. Write/overwrite dogfood/AUTH_SCRATCH.js with exactly:",
+      "   // skeg-dogfood-auth-v032",
+      "   export const marker = 'skeg-dogfood-auth-v032';",
+      "2. Do not edit other files.",
+      "3. If a Skeg gate confirm appears, host will approve.",
+      "4. Reply DONE after the write/edit tool succeeds."
+    ]
+  },
+  "gitignoreEntries": [".skeg/", ".pi/", "dogfood/HOST_SCRATCH.md", ".env.skeg-dogfood"],
+  "dependencyMarker": "skeg-dogfood-v032"
 }

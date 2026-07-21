@@ -34,6 +34,7 @@ import {
   createRun,
   formatCloseReport,
   formatStatus,
+  hasCliFlag,
   isOpenRun,
   latestRunFromEntries,
   resolveGate,
@@ -256,7 +257,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand('init', {
     description: 'Initialize .skeg/project.md and config.json',
     handler: async (args, ctx: ExtensionCommandContext) => {
-      const force = /\b--force\b/.test(args || '');
+      const force = hasCliFlag(args, '--force');
       const result = initSkeg(ctx.cwd, force);
       reloadConfig(ctx.cwd);
       ctx.ui.notify(result.message, 'info');
@@ -269,6 +270,7 @@ export default function (pi: ExtensionAPI) {
       reloadConfig(ctx.cwd);
       const text = (args || '').trim();
 
+      // /run --abandon：仅当参数以 --abandon 开头（避免 intent 正文误伤）
       if (text === '--abandon' || text.startsWith('--abandon ')) {
         if (!isOpenRun(run)) {
           ctx.ui.notify('No open run to abandon.', 'info');
@@ -320,7 +322,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      if (/\b--abandon\b/.test(args || '')) {
+      if (hasCliFlag(args, '--abandon')) {
         persist(closeRun(run!, 'abandoned'));
         ctx.ui.notify(`Abandoned: ${run!.intent}`, 'info');
         return;

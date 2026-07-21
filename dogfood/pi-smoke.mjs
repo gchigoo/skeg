@@ -10,6 +10,7 @@ import {
   existsSync,
   readFileSync,
   readdirSync,
+  unlinkSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -41,35 +42,37 @@ function ensureSandbox(root) {
       JSON.stringify({ name: 'skeg-smoke', version: '0.0.0', private: true }),
     );
   }
-  if (!existsSync(join(root, 'src/auth/redirect.ts'))) {
-    writeFileSync(
-      join(root, 'src/auth/redirect.ts'),
-      'export function buildRedirect(path: string, query: string) {\n  return path;\n}\n',
-    );
-  }
-  if (!existsSync(join(root, 'src/auth/logout.ts'))) {
-    writeFileSync(
-      join(root, 'src/auth/logout.ts'),
-      'export function logout() {\n  // noop\n}\n',
-    );
-  }
+  // 每次 smoke 重置 fixture，避免上次 run 改坏后 ensure 跳过写入
+  writeFileSync(
+    join(root, 'src/auth/redirect.ts'),
+    'export function buildRedirect(path: string, query: string) {\n  return path;\n}\n',
+  );
+  writeFileSync(
+    join(root, 'src/auth/logout.ts'),
+    'export function logout() {\n  // noop\n}\n',
+  );
   mkdirSync(join(root, 'src/settings'), { recursive: true });
-  if (!existsSync(join(root, 'src/settings/copy.ts'))) {
-    writeFileSync(
-      join(root, 'src/settings/copy.ts'),
-      [
-        "// typo fixture: fix DEFAULT only (avoid export-line public-api heuristic)",
-        "const DEFAULT = 'Savve settings';",
-        'export const SAVE_LABEL = DEFAULT;',
-        '',
-      ].join('\n'),
-    );
-  }
-  if (!existsSync(join(root, 'migrations/001_init.sql'))) {
-    writeFileSync(
-      join(root, 'migrations/001_init.sql'),
-      'CREATE TABLE users (id int, email text);\n',
-    );
+  writeFileSync(
+    join(root, 'src/settings/copy.ts'),
+    [
+      '// typo fixture: fix DEFAULT only (avoid export-line public-api heuristic)',
+      "const DEFAULT = 'Savve settings';",
+      'export const SAVE_LABEL = DEFAULT;',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(root, 'migrations/001_init.sql'),
+    'CREATE TABLE users (id int, email text);\n',
+  );
+  // 清掉上次 risk 场景留下的迁移，避免 gate 场景串味
+  const riskMig = join(root, 'migrations/002_users_email_unique.sql');
+  if (existsSync(riskMig)) {
+    try {
+      unlinkSync(riskMig);
+    } catch {
+      /* ignore */
+    }
   }
   mkdirSync(join(root, '.pi'), { recursive: true });
   writeFileSync(
@@ -77,14 +80,14 @@ function ensureSandbox(root) {
     JSON.stringify({ packages: [SKEG_ROOT] }, null, 2),
   );
 
-  // 初始化 git，便于 agent_end healChangedFilesFromGit 兜底
-  if (!existsSync(join(root, '.git'))) {
-    try {
+  // 初始化/重置 git，便于 agent_end heal；fixture 重写后必须再 commit，避免脏树串味
+  try {
+    if (!existsSync(join(root, '.git'))) {
       execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
-      commitSandbox(root, 'smoke fixture');
-    } catch {
-      /* git optional for basic UX checks */
     }
+    commitSandbox(root, 'smoke fixture reset');
+  } catch {
+    /* git optional for basic UX checks */
   }
 }
 

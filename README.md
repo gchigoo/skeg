@@ -42,13 +42,14 @@ Prompt template:
 
 ## Status
 
-**v0.3.1 ready** — phase 记账修复（bash 写文件 + agent_end git 自愈）；host dogfood 多 profile；Round 3/4 真实宿主 `phase stayed orient = 0`。
+**v0.3.2 ready** — 扩大真实使用面：4 新宿主 profile + abandon/protected/auth 场景；`hasCliFlag` 修复 `--force`/`--abandon`；有机 run ≥ 12。
 
 ```bash
 npm run verify
 npm run smoke
 npm run dogfood:host -- --cwd . --profile skeg
-npm run dogfood:host -- --cwd /path/to/real-project --profile ado-bug-agent
+npm run dogfood:host -- --cwd /path/to/real-project --profile Blog
+node dogfood/organic-runs.mjs --cwd /path/to/project --name <label>
 ```
 
 ## Config highlights

@@ -5,6 +5,7 @@
  *   node dogfood/host-dogfood.mjs --cwd D:/Projects/ado-bug-agent
  *   node dogfood/host-dogfood.mjs --cwd . --profile skeg
  *   node dogfood/host-dogfood.mjs --cwd <project> --profile ./dogfood/profiles/custom.json
+ *   node dogfood/host-dogfood.mjs --cwd D:/Personal/Blog --profile Blog
  */
 import { spawn } from 'node:child_process';
 import {
@@ -57,7 +58,7 @@ function resolveProfilePath(raw, host) {
   const named = join(SKEG_ROOT, 'dogfood', 'profiles', `${guess}.json`);
   if (existsSync(named)) return named;
   throw new Error(
-    `No --profile and no dogfood/profiles/${guess}.json; pass --profile skeg|ado-bug-agent|<path>`,
+    `No --profile and no dogfood/profiles/${guess}.json; pass --profile <name|path>`,
   );
 }
 
@@ -312,6 +313,8 @@ class PiRpc {
  *     recordsInjected?: boolean,
  *     checkName?: string,
  *     phaseNotOrient?: boolean,
+ *     abandoned?: boolean,
+ *     riskGuarded?: boolean,
  *   },
  *   finish?: boolean,
  *   abandon?: boolean,
@@ -333,8 +336,24 @@ function buildScenarios(profile) {
   const gitignoreLines = (profile.gitignoreEntries || ['.skeg/', '.pi/']).join(
     '\n   ',
   );
-  const marker = profile.dependencyMarker || 'skeg-dogfood';
+  // 每次跑用唯一 marker，避免上次残留导致 agent 跳过 edit、gate 不触发
+  const marker = `${profile.dependencyMarker || 'skeg-dogfood'}-${Date.now().toString(36)}`;
   const edit = profile.edit || {};
+  const protectedTouch = profile.protectedTouch || {
+    path: '.env.skeg-dogfood',
+    content: 'SKEG_DOGFOOD=1\n',
+  };
+  const authEdit = profile.authEdit || {
+    path: '.skeg-dogfood/auth-scratch.js',
+    needle: 'skeg-dogfood-auth-v032',
+    work: [
+      'Do exactly this and stop:',
+      '1. Write/overwrite .skeg-dogfood/auth-scratch.js with exactly:',
+      "   // skeg-dogfood-auth-v032",
+      "   export const marker = 'skeg-dogfood-auth-v032';",
+      '2. Reply DONE.',
+    ],
+  };
 
   return [
     {
@@ -484,13 +503,69 @@ function buildScenarios(profile) {
       intent: 'Touch package.json keywords to exercise dependencyChange gate',
       work: [
         'Do exactly this and stop:',
-        `1. Edit package.json keywords: set/replace the skeg marker to exactly "${marker}"`,
-        '   (remove prior skeg-dogfood* markers if present). This MUST modify package.json via edit/write tool.',
+        `1. Edit package.json keywords via write/edit tool: remove every keyword matching /^skeg-dogfood/`,
+        `   then append exactly "${marker}" (a fresh unique token). You MUST perform a real write even if a similar marker exists.`,
         '2. Do not use bash to edit the file.',
         '3. If a Skeg gate confirm appears, host will approve.',
         '4. Reply DONE after the write/edit tool succeeds.',
       ].join('\n'),
       expect: { gateTrigger: 'dependencyChange', phaseNotOrient: true },
+      finish: true,
+    },
+    {
+      id: 'df-11-abandon',
+      intent: 'Abandon an open run without finishing prove',
+      work: [
+        'Do exactly this and stop:',
+        '1. Do not edit files.',
+        '2. Do not run tests.',
+        '3. Reply READY FOR ABANDON.',
+      ].join('\n'),
+      expect: { abandoned: true },
+      abandon: true,
+      finish: false,
+    },
+    {
+      id: 'df-12-protected-gate',
+      intent: `Touch protected path ${protectedTouch.path} to exercise protectedPaths gate`,
+      work: [
+        'Do exactly this and stop:',
+        `1. Write/overwrite ${protectedTouch.path} with exactly this content via write/edit tool (not bash):`,
+        String(protectedTouch.content || 'SKEG_DOGFOOD=1\n')
+          .split('\n')
+          .filter((l) => l.length > 0)
+          .map((l) => `   ${l}`)
+          .join('\n') || '   SKEG_DOGFOOD=1',
+        '2. Do not use bash to edit the file.',
+        '3. If a Skeg gate confirm appears, host will approve.',
+        '4. Reply DONE after the write/edit tool succeeds.',
+      ].join('\n'),
+      expect: {
+        gateTrigger: 'protectedPaths',
+        fileIncludes: [
+          {
+            path: protectedTouch.path,
+            needle: (protectedTouch.content || 'SKEG_DOGFOOD').split('\n')[0],
+          },
+        ],
+        phaseNotOrient: true,
+      },
+      finish: true,
+    },
+    {
+      id: 'df-13-auth-guarded',
+      intent: `Edit auth path ${authEdit.path} to exercise authChange gate`,
+      work: Array.isArray(authEdit.work)
+        ? authEdit.work.join('\n')
+        : String(authEdit.work || 'Reply DONE.'),
+      expect: {
+        gateTrigger: 'authChange',
+        fileIncludes: authEdit.path
+          ? [{ path: authEdit.path, needle: authEdit.needle || '' }]
+          : [],
+        phaseNotOrient: true,
+        riskGuarded: true,
+      },
       finish: true,
     },
   ];
@@ -558,7 +633,7 @@ async function runScenario(pi, scenario) {
 
   pi.notifies = [];
   await pi.prompt('/status');
-  const status = pi.notifies.map((n) => n.message || '').join('\n');
+  let status = pi.notifies.map((n) => n.message || '').join('\n');
   for (const needle of scenario.expect?.statusIncludes ?? []) {
     if (!status.includes(needle)) {
       pass = false;
@@ -571,6 +646,14 @@ async function runScenario(pi, scenario) {
       pass = false;
       frictions.push(
         `major|expected check ${scenario.expect.checkName} in /status: ${status.replace(/\n/g, ' | ').slice(0, 220)}`,
+      );
+    }
+  }
+  if (scenario.expect?.riskGuarded) {
+    if (!/Risk:\s*guarded/i.test(status)) {
+      pass = false;
+      frictions.push(
+        `major|expected Risk guarded in /status: ${status.replace(/\n/g, ' | ').slice(0, 220)}`,
       );
     }
   }
@@ -599,6 +682,22 @@ async function runScenario(pi, scenario) {
   pi.notifies = [];
   if (scenario.abandon) {
     await pi.prompt('/finish --abandon');
+    const abandonMsg = pi.notifies.map((n) => n.message || '').join('\n');
+    if (!/Abandoned/i.test(abandonMsg)) {
+      pass = false;
+      frictions.push(
+        `major|/finish --abandon did not notify Abandoned: ${abandonMsg.slice(0, 160)}`,
+      );
+    }
+    pi.notifies = [];
+    await pi.prompt('/status');
+    status = pi.notifies.map((n) => n.message || '').join('\n');
+    if (scenario.expect?.abandoned && !/Status:\s*abandoned/i.test(status)) {
+      pass = false;
+      frictions.push(
+        `major|expected Status abandoned after abandon: ${status.replace(/\n/g, ' | ').slice(0, 220)}`,
+      );
+    }
   } else if (scenario.finish !== false) {
     await pi.prompt('/finish');
     const finish = pi.notifies.map((n) => n.message || '').join('\n');
@@ -677,7 +776,7 @@ function appendFriction(results, hostName, round) {
     '| --- | --- | --- | --- | --- | --- |',
     ...rows,
     '',
-    `真实 run 计数：${results.length} / 10`,
+    `真实 run 计数：${results.length} / 13`,
     `phase stayed orient：${phaseStuck}`,
     '',
     '### Host dogfood summary',
@@ -691,12 +790,21 @@ function appendFriction(results, hostName, round) {
     '### 候选证据快照',
     '',
     `- skeg-strict: ${
-      results.find((r) => r.id === 'df-10-dependency-gate')?.pass
+      results.find((r) => r.id === 'df-10-dependency-gate')?.pass &&
+      results.find((r) => r.id === 'df-12-protected-gate')?.pass
         ? 'gate 正常；暂无更严默认策略诉求 → no-go'
         : 'gate 异常，需复查'
     }`,
-    '- mission: 单 session 完成 → no-go',
-    '- review check: prove command/diff 覆盖 → no-go',
+    `- mission: ${
+      results.find((r) => r.id === 'df-11-abandon')?.pass
+        ? 'abandon 可用；仍无跨 session 恢复诉求 → no-go'
+        : 'abandon 异常，需复查'
+    }`,
+    `- review check: ${
+      results.find((r) => r.id === 'df-13-auth-guarded')?.pass
+        ? 'authChange gate + guarded 升级覆盖；无独立审查诉求 → no-go'
+        : 'authChange 异常，需复查'
+    }`,
     '',
   ].join('\n');
 
@@ -715,7 +823,7 @@ async function main() {
   console.log(`Skeg:    ${SKEG_ROOT}`);
   console.log(`Profile: ${PROFILE_PATH}`);
   console.log(`Model:   ${MODEL}`);
-  console.log(`Scenarios: ${scenarios.length}`);
+  console.log(`Scenarios: ${scenarios.length} (incl. abandon/protected/auth)`);
 
   const pi = new PiRpc(HOST);
   await pi.start();

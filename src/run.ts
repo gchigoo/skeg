@@ -12,6 +12,19 @@ import type {
 } from './types.ts';
 
 /**
+ * 检测 slash 命令参数是否含 CLI flag。
+ * 注意：`--flag` 不能用 `\b--flag`（`--` 前无 word boundary，永远不匹配）。
+ * @param args 命令参数（不含命令名）
+ * @param flag 含或不含 `--` 前缀均可，如 `force` / `--force`
+ * @returns 是否命中
+ */
+export function hasCliFlag(args: string | undefined, flag: string): boolean {
+  const name = flag.replace(/^--/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (!name) return false;
+  return new RegExp(`(?:^|\\s)--${name}(?:\\s|$)`).test(args || '');
+}
+
+/**
  * 创建新的 active run。
  * @param intent 用户意图
  * @param risk 初始风险等级

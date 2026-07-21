@@ -5,10 +5,26 @@ import {
   applyRiskHit,
   closeRun,
   createRun,
+  hasCliFlag,
   isOpenRun,
   latestRunFromEntries,
   resolveGate,
 } from './run.ts';
+
+describe('hasCliFlag', () => {
+  it('matches leading --flag (\\b would fail)', () => {
+    assert.equal(hasCliFlag('--force', '--force'), true);
+    assert.equal(hasCliFlag('--abandon', 'abandon'), true);
+    assert.equal(hasCliFlag('--force --verbose', '--force'), true);
+    assert.equal(hasCliFlag('  --abandon  ', '--abandon'), true);
+  });
+
+  it('rejects partial or missing flags', () => {
+    assert.equal(hasCliFlag('--forceful', '--force'), false);
+    assert.equal(hasCliFlag('', '--force'), false);
+    assert.equal(hasCliFlag(undefined, '--abandon'), false);
+  });
+});
 
 describe('createRun', () => {
   it('starts lean orient active', () => {
