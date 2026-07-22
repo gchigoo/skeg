@@ -39,19 +39,31 @@ export function requiredCheckNames(
 }
 
 /**
+ * 为 package script 名生成锚定正则（避免 `echo test` 等假阳性）。
+ * @param script package.json script 名
+ * @returns /regex/i 形式
+ */
+function packageScriptMatcher(script: string): string {
+  const escaped = script.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return `/^(npm|pnpm|yarn|bun)\\s+(run\\s+)?${escaped}(?:\\s|$)/i`;
+}
+
+/**
  * 从 package.json scripts 探测常用命令匹配。
  * @param scripts package.json scripts
- * @returns checks.commands 片段
+ * @returns checks.commands 片段（锚定正则）
  */
 export function detectCommandsFromScripts(
   scripts: Record<string, string>,
 ): Record<string, string> {
   const out: Record<string, string> = {};
-  if (scripts.test) out.test = 'test';
-  if (scripts.typecheck || scripts['type-check']) {
-    out.typecheck = scripts.typecheck ? 'typecheck' : 'type-check';
+  if (scripts.test) out.test = packageScriptMatcher('test');
+  if (scripts.typecheck) {
+    out.typecheck = packageScriptMatcher('typecheck');
+  } else if (scripts['type-check']) {
+    out.typecheck = packageScriptMatcher('type-check');
   }
-  if (scripts.lint) out.lint = 'lint';
-  if (scripts.build) out.build = 'build';
+  if (scripts.lint) out.lint = packageScriptMatcher('lint');
+  if (scripts.build) out.build = packageScriptMatcher('build');
   return out;
 }

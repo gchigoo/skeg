@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { normalizePath } from './paths.ts';
-import type { WorkspaceBaseline } from './types.ts';
+import type { RunState, WorkspaceBaseline, WorkspaceObservation } from './types.ts';
 
 export type ExecGit = (cwd: string, args: string[]) => string;
 
@@ -102,6 +102,47 @@ export type ReconcileResult = {
   headMoved: boolean;
   currentHead?: string;
 };
+
+/**
+ * 计算 run-scoped 工作区观察值（HEAD + changedFiles 内容指纹）。
+ * 用于检测同路径内容变化等未记账 mutation。
+ * @param cwd 项目根
+ * @param run 当前 run
+ * @param execGit git 执行器
+ * @param now 观察时间
+ * @returns 观察值
+ */
+export function computeRunObservation(
+  cwd: string,
+  run: RunState,
+  execGit: ExecGit = defaultExecGit,
+  now: string = new Date().toISOString(),
+): WorkspaceObservation {
+  let head: string | undefined;
+  try {
+    head = execGit(cwd, ['rev-parse', 'HEAD']).trim() || undefined;
+  } catch {
+    head = undefined;
+  }
+
+  const files = [...run.changedFiles].sort();
+  const hash = createHash('sha256');
+  hash.update(head ?? '');
+  hash.update('\0');
+  for (const file of files) {
+    hash.update(file);
+    hash.update('\0');
+    hash.update(fingerprintFile(cwd, file, execGit));
+    hash.update('\0');
+  }
+
+  return {
+    hash: hash.digest('hex').slice(0, 16),
+    head,
+    observedRevision: run.revision,
+    observedAt: now,
+  };
+}
 
 /**
  * 相对 baseline 归因当前工作区变化。

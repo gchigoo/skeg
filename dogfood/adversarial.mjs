@@ -92,20 +92,28 @@ async function main() {
   });
 
   await inv('run 前已有 dirty file → 不归入当前 run', () => {
-    const baseline = {
-      head: 'aaa',
-      capturedAt: new Date().toISOString(),
-      dirtyFiles: ['src/unrelated.ts'],
-      fileFingerprints: {
-        'src/unrelated.ts': createHash('sha256').update('same').digest('hex').slice(0, 16),
-      },
-    };
-    // fingerprint 匹配 → pre-existing
     const cwd = mkdtempSync(join(tmpdir(), 'skeg-adv-'));
     try {
       mkdirSync(join(cwd, 'src'), { recursive: true });
       writeFileSync(join(cwd, 'src/unrelated.ts'), 'same', 'utf8');
       writeFileSync(join(cwd, 'src/auth.ts'), 'new', 'utf8');
+      // fingerprintFile = sha256('1\\0' + content + '\\0' + diff).slice(0,16)
+      const unrelatedFp = createHash('sha256')
+        .update('1')
+        .update('\0')
+        .update('same')
+        .update('\0')
+        .update('')
+        .digest('hex')
+        .slice(0, 16);
+      const baseline = {
+        head: 'aaa',
+        capturedAt: new Date().toISOString(),
+        dirtyFiles: ['src/unrelated.ts'],
+        fileFingerprints: {
+          'src/unrelated.ts': unrelatedFp,
+        },
+      };
       const execGit = (_c, args) => {
         if (args[0] === 'rev-parse') return 'aaa\n';
         if (args[0] === 'status') {
@@ -117,15 +125,13 @@ async function main() {
         }
         return '';
       };
-      // 覆盖 fingerprintFile 依赖：unrelated 内容 same + empty diff → 需与 baseline 一致
-      // 简化：直接断言 reconcile 逻辑对「不在 baseline 的文件」归入 runChanges
       const result = reconcileAgainstBaseline(cwd, baseline, execGit);
       assert.ok(result.runChanges.includes('src/auth.ts'));
-      // unrelated 若指纹变了会进 runChanges；指纹相同进 preExisting
       assert.ok(
-        result.preExisting.includes('src/unrelated.ts') ||
-          result.runChanges.includes('src/unrelated.ts'),
+        result.preExisting.includes('src/unrelated.ts'),
+        `expected preExisting, got runChanges=${JSON.stringify(result.runChanges)} preExisting=${JSON.stringify(result.preExisting)}`,
       );
+      assert.equal(result.runChanges.includes('src/unrelated.ts'), false);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -237,15 +243,31 @@ async function main() {
     assert.equal(ev.ok, false);
   });
 
-  await inv('run 中途 git commit → 已提交改动不从归因丢失', () => {
-    // baseline.head 固定；diff 基准使用 baseline.head（prove.readGitDiff）
+  await inv('run 中途 git commit → 已提交改动不从归因丢失', async () => {
+    // 完整 fixture 在 runtime-invariants；此处断言 prove.readGitDiff 使用 baseline.head
+    const { readGitDiff } = await import(
+      pathToFileURL(join(root, 'src/prove.ts')).href
+    );
     const baseline = {
       head: 'oldhead',
       capturedAt: new Date().toISOString(),
       dirtyFiles: [],
       fileFingerprints: {},
     };
-    assert.equal(baseline.head, 'oldhead');
+    const seen = [];
+    readGitDiff('/tmp/fake', baseline, (_cwd, args) => {
+      seen.push(args);
+      if (args[0] === 'diff' && args.includes('--name-only')) {
+        return 'src/a.ts\n';
+      }
+      if (args[0] === 'status') return '';
+      if (args[0] === 'diff') return 'diff --git a/src/a.ts b/src/a.ts\n';
+      return '';
+    });
+    assert.ok(
+      seen.some((a) => a.includes('oldhead')),
+      `expected baseline.head in git args, got ${JSON.stringify(seen)}`,
+    );
   });
 
   await inv('加载 v1 旧 session state → 自动迁移到 schema v2', () => {
@@ -264,17 +286,17 @@ async function main() {
     assert.equal(v2.schemaVersion, 2);
   });
 
-  // 指标
+  // 结构化 metrics（不再按测试名字符串推导）
   const failed = results.filter((r) => !r.ok && !r.skip);
   const metrics = {
-    'False-done rate': failed.some((f) => f.name.includes('finish')) ? 1 : 0,
-    'Stale evidence acceptance': failed.some((f) => f.name.includes('stale') || f.name.includes('revision'))
-      ? 1
-      : 0,
-    'Pre-existing change attribution': 0,
-    'Deterministic gate miss': failed.some((f) => f.name.includes('危险') || f.name.includes('两个 trigger'))
-      ? 1
-      : 0,
+    falseDone: failed.some((f) => f.name.includes('finish') || f.name.includes('/finish')),
+    staleAccepted: failed.some(
+      (f) => f.name.includes('stale') || f.name.includes('revision'),
+    ),
+    attributionError: failed.some((f) => f.name.includes('dirty file')),
+    gateMiss: failed.some(
+      (f) => f.name.includes('危险') || f.name.includes('两个 trigger'),
+    ),
   };
 
   console.log('\n--- Metrics ---');
@@ -289,10 +311,9 @@ async function main() {
     console.error('\nAdversarial failed.');
     process.exit(1);
   }
-  // 前四项必须为 0
   for (const [k, v] of Object.entries(metrics)) {
-    if (v !== 0) {
-      console.error(`Metric ${k} must be 0, got ${v}`);
+    if (v) {
+      console.error(`Metric ${k} must be false, got ${v}`);
       process.exit(1);
     }
   }

@@ -45,4 +45,29 @@ describe('evaluateClosure', () => {
     run = reduce(run, { type: 'MUTATION_COMMITTED', paths: ['b.ts'] });
     assert.equal(evaluateClosure(run, DEFAULT_CONFIG).ok, false);
   });
+
+  it('rejects unresolved requiresGate signals', () => {
+    let run = createRun('x');
+    run = upsertCheck(run, {
+      kind: 'command',
+      name: 'targeted-test',
+      passed: true,
+    });
+    run = upsertCheck(run, { kind: 'diff', name: 'diff', passed: true });
+    assert.equal(evaluateClosure(run, DEFAULT_CONFIG).ok, true);
+    run = reduce(run, {
+      type: 'SIGNAL_RAISED',
+      signal: {
+        trigger: 'custom-policy',
+        strength: 'deterministic',
+        evidence: 'needs human ack',
+        requiresGate: true,
+        acknowledged: false,
+      },
+    });
+    const ev = evaluateClosure(run, DEFAULT_CONFIG);
+    assert.equal(ev.ok, false);
+    assert.equal(ev.unresolvedSignals.length, 1);
+    assert.match(formatClosureFailure(ev, run), /Unresolved signals/);
+  });
 });

@@ -66,6 +66,14 @@ export type WorkspaceBaseline = {
   fileFingerprints: Record<string, string>;
 };
 
+/** agent_settled 时对 run-scoped 工作区的滚动观察值 */
+export type WorkspaceObservation = {
+  hash: string;
+  head?: string;
+  observedRevision: number;
+  observedAt: string;
+};
+
 export type Gate = {
   id: string;
   hits: RiskHit[];
@@ -99,6 +107,8 @@ export type RunState = {
   recordIds?: string[];
   /** baseline 外的既有脏文件（展示用，不进证明范围） */
   preExistingFiles?: string[];
+  /** 最近一次工作区滚动指纹（可选；旧 session 无此字段） */
+  observation?: WorkspaceObservation;
   createdAt: string;
   updatedAt: string;
 };
@@ -135,7 +145,7 @@ export type SkegConfig = {
     guarded: string[];
     /**
      * 可选：check 名 → 命令匹配（子串或 /regex/ 形式）。
-     * 配置优先于内置启发式。
+     * 匹配顺序：targeted-test 启发式 → 本配置 → bare test / typecheck / lint / build。
      */
     commands?: Record<string, string>;
   };

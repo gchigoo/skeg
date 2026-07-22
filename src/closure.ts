@@ -79,7 +79,8 @@ export function evaluateClosure(
     missingOnly.length === 0 &&
     failed.length === 0 &&
     stale.length === 0 &&
-    openGates.length === 0;
+    openGates.length === 0 &&
+    unresolvedSignals.length === 0;
 
   return {
     ok,

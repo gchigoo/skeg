@@ -24,4 +24,5 @@ jobs:
       - run: npm run typecheck
       - run: npm run check:budgets
       - run: npm run dogfood:adversarial
+      - run: npm run dogfood:runtime
       - run: npm pack --dry-run

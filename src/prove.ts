@@ -135,14 +135,12 @@ export function analyzeProveSnapshot(
   );
 
   if (!snapshot.available) {
+    // fail-closed：tracked path 不能证明当前 diff；逃生用 /finish --waive
     checks.push({
       kind: 'diff',
       name: 'diff',
-      passed: run.changedFiles.length > 0,
-      evidence:
-        run.changedFiles.length > 0
-          ? `git unavailable; using tracked files: ${run.changedFiles.join(', ')}`
-          : `git unavailable: ${snapshot.error ?? 'unknown'}`,
+      passed: false,
+      evidence: `git unavailable: ${snapshot.error ?? 'unknown'}`,
     });
   } else {
     const unexpectedProtected = tracked.filter((f) =>
@@ -167,9 +165,12 @@ export function analyzeProveSnapshot(
     });
   }
 
+  // signal 只扫本 run 文件片段，排除 pre-existing（避免启动前脏文件假警报）
+  const scopedDiff = scopeDiffToFiles(snapshot.diff, tracked);
+
   // sensitive keywords → RiskSignal（非 failed check）
   if (config.authPaths.length === 0) {
-    const keywords = findSensitiveKeywords(snapshot.diff);
+    const keywords = findSensitiveKeywords(scopedDiff);
     if (keywords.length > 0) {
       upgradeGuarded = true;
       upgradeReasons.push(`sensitive keywords: ${keywords.join(', ')}`);
@@ -184,7 +185,7 @@ export function analyzeProveSnapshot(
 
   // public API export → RiskSignal
   if (config.apiPaths.length === 0) {
-    const exports = findExportSymbolChanges(snapshot.diff);
+    const exports = findExportSymbolChanges(scopedDiff);
     if (exports.length > 0) {
       upgradeGuarded = true;
       upgradeReasons.push(`export symbol changes: ${exports.length}`);
@@ -287,6 +288,46 @@ export function runProveChecks(
   }
 
   return { run: next, notes };
+}
+
+/**
+ * 按 `diff --git` 头切分 unified diff，只保留指定文件的片段。
+ * 启动前 dirty 后又被本 run 修改的文件仍保留全片段（无法减去 baseline patch）。
+ * @param diff 完整 diff 文本
+ * @param files 允许扫描的相对路径
+ * @returns 拼接后的 scoped diff
+ */
+export function scopeDiffToFiles(diff: string, files: string[]): string {
+  if (!diff.trim() || files.length === 0) return '';
+  const allow = new Set(files.map(normalizePath));
+  const chunks: string[] = [];
+  let currentFile: string | null = null;
+  let current: string[] = [];
+
+  const flush = () => {
+    if (currentFile && allow.has(currentFile) && current.length > 0) {
+      chunks.push(current.join('\n'));
+    }
+    current = [];
+    currentFile = null;
+  };
+
+  for (const line of diff.split(/\r?\n/)) {
+    const gitHeader = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
+    if (gitHeader) {
+      flush();
+      currentFile = normalizePath(gitHeader[2] || gitHeader[1]);
+      current = [line];
+      continue;
+    }
+    const plusHeader = line.match(/^\+\+\+ b\/(.+)$/);
+    if (plusHeader && !currentFile) {
+      currentFile = normalizePath(plusHeader[1]);
+    }
+    if (currentFile) current.push(line);
+  }
+  flush();
+  return chunks.join('\n');
 }
 
 /**

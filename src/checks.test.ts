@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { detectCommandsFromScripts } from './checkspec.ts';
 import { DEFAULT_CONFIG } from './config.ts';
 import { buildCommandCheck, classifyCheckCommand } from './checks.ts';
 import type { SkegConfig } from './types.ts';
@@ -90,7 +91,7 @@ describe('classifyCheckCommand', () => {
     }
   });
 
-  it('prefers config.commands over heuristics', () => {
+  it('uses config.commands after targeted-test recognition', () => {
     const config: SkegConfig = {
       ...DEFAULT_CONFIG,
       checks: {
@@ -108,6 +109,34 @@ describe('classifyCheckCommand', () => {
     assert.deepEqual(classifyCheckCommand('biome ci .', config), {
       kind: 'command',
       name: 'custom-lint',
+    });
+  });
+
+  it('rejects false-positive substrings after /init detection', () => {
+    const detected = detectCommandsFromScripts({
+      test: 'node --test',
+      typecheck: 'tsc --noEmit',
+      lint: 'eslint .',
+      build: 'vite build',
+    });
+    const config: SkegConfig = {
+      ...DEFAULT_CONFIG,
+      checks: { ...DEFAULT_CONFIG.checks, commands: detected },
+    };
+    assert.equal(classifyCheckCommand('echo test', config), null);
+    assert.equal(classifyCheckCommand('cat test.log', config), null);
+    assert.equal(classifyCheckCommand('npm run contest', config), null);
+    assert.deepEqual(classifyCheckCommand('pnpm test src/a.test.ts', config), {
+      kind: 'command',
+      name: 'targeted-test',
+    });
+    assert.deepEqual(classifyCheckCommand('pnpm test', config), {
+      kind: 'command',
+      name: 'test',
+    });
+    assert.deepEqual(classifyCheckCommand('pnpm run typecheck', config), {
+      kind: 'command',
+      name: 'typecheck',
     });
   });
 });

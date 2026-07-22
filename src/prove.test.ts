@@ -5,6 +5,7 @@ import {
   analyzeProveSnapshot,
   healChangedFilesFromGit,
   runProveChecks,
+  scopeDiffToFiles,
 } from './prove.ts';
 import { createRun } from './run.ts';
 
@@ -94,6 +95,74 @@ describe('analyzeProveSnapshot', () => {
     );
     const diff = analysis.checks.find((c) => c.name === 'diff');
     assert.equal(diff?.passed, false);
+  });
+
+  it('fails closed when git unavailable', () => {
+    let run = createRun('x');
+    run = { ...run, changedFiles: ['a.ts'] };
+    const analysis = analyzeProveSnapshot(
+      { available: false, files: [], diff: '', error: 'not a git repo' },
+      run,
+      DEFAULT_CONFIG,
+    );
+    const diff = analysis.checks.find((c) => c.name === 'diff');
+    assert.equal(diff?.passed, false);
+    assert.match(diff?.evidence ?? '', /git unavailable/);
+  });
+
+  it('ignores sensitive keywords in pre-existing-only diff chunks', () => {
+    const preDiff = `
+diff --git a/legacy.ts b/legacy.ts
+--- a/legacy.ts
++++ b/legacy.ts
+@@ -1,1 +1,2 @@
++const password = 'pre-existing';
+ export const x = 1;
+`;
+    const runDiff = `
+diff --git a/src/ok.ts b/src/ok.ts
+--- a/src/ok.ts
++++ b/src/ok.ts
+@@ -1,1 +1,2 @@
++export const ok = true;
+`;
+    let run = createRun('scoped signals');
+    run = {
+      ...run,
+      changedFiles: ['src/ok.ts'],
+      preExistingFiles: ['legacy.ts'],
+    };
+    const analysis = analyzeProveSnapshot(
+      {
+        available: true,
+        files: ['legacy.ts', 'src/ok.ts'],
+        diff: `${preDiff}${runDiff}`,
+      },
+      run,
+      DEFAULT_CONFIG,
+    );
+    assert.equal(
+      analysis.signals.some((s) => s.trigger === 'sensitive-keywords'),
+      false,
+    );
+  });
+});
+
+describe('scopeDiffToFiles', () => {
+  it('keeps only allowed file chunks', () => {
+    const scoped = scopeDiffToFiles(
+      `${SAMPLE_DIFF}
+diff --git a/other.ts b/other.ts
+--- a/other.ts
++++ b/other.ts
+@@ -0,0 +1 @@
++password = "x"
+`,
+      ['src/auth/logout.ts'],
+    );
+    assert.match(scoped, /logout\.ts/);
+    assert.equal(scoped.includes('other.ts'), false);
+    assert.equal(scoped.includes('password'), false);
   });
 });
 

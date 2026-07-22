@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  authorizeMutationPaths,
   extractBashWritePaths,
   isBashFileWrite,
   pathMatchCandidates,
@@ -75,5 +76,25 @@ describe('toWorkspacePath', () => {
   it('flags paths outside workspace', () => {
     const r = toWorkspacePath('/proj', '/other/secret');
     assert.equal(r.outsideWorkspace, true);
+  });
+});
+
+describe('authorizeMutationPaths', () => {
+  it('allows workspace-relative writes', () => {
+    const r = authorizeMutationPaths('/proj', ['src/a.ts', './b.ts']);
+    assert.deepEqual(r.allowed, ['src/a.ts', 'b.ts']);
+    assert.equal(r.blocked.length, 0);
+  });
+
+  it('blocks outside workspace and .git writes', () => {
+    const r = authorizeMutationPaths('/proj', [
+      '../outside.txt',
+      '.git/config',
+      'src/ok.ts',
+    ]);
+    assert.deepEqual(r.allowed, ['src/ok.ts']);
+    assert.equal(r.blocked.length, 2);
+    assert.ok(r.blocked.some((b) => b.path.includes('outside')));
+    assert.ok(r.blocked.some((b) => b.path.includes('.git')));
   });
 });

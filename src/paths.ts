@@ -60,6 +60,45 @@ export function toWorkspacePaths(cwd: string, paths: string[]): string[] {
   return paths.map((p) => toWorkspacePath(cwd, p).relativePath);
 }
 
+export type AuthorizedPaths = {
+  allowed: string[];
+  blocked: Array<{ path: string; reason: string }>;
+};
+
+/**
+ * 统一 mutation 路径边界检查：workspace 外与 .git/** 写入一律 block。
+ * @param cwd 工作区根
+ * @param paths 候选写入路径
+ * @returns 允许与阻止列表
+ */
+export function authorizeMutationPaths(
+  cwd: string,
+  paths: string[],
+): AuthorizedPaths {
+  const allowed: string[] = [];
+  const blocked: Array<{ path: string; reason: string }> = [];
+  for (const input of paths) {
+    const wp = toWorkspacePath(cwd, input);
+    if (wp.outsideWorkspace) {
+      blocked.push({
+        path: input,
+        reason: 'write outside workspace',
+      });
+      continue;
+    }
+    const rel = wp.relativePath;
+    if (rel === '.git' || rel.startsWith('.git/')) {
+      blocked.push({
+        path: input,
+        reason: 'write to .git',
+      });
+      continue;
+    }
+    allowed.push(rel);
+  }
+  return { allowed, blocked };
+}
+
 /**
  * 将 glob 转为正则。支持 `*` 与 `**`。
  * @param pattern glob 模式

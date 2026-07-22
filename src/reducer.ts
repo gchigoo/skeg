@@ -12,6 +12,7 @@ export type SkegEvent =
   | { type: 'GATE_RESOLVED'; approved: boolean; now?: string }
   | { type: 'GATE_CLEARED'; now?: string }
   | { type: 'WORKSPACE_RECONCILED'; changedFiles: string[]; preExistingFiles?: string[]; headMoved?: boolean; now?: string }
+  | { type: 'WORKSPACE_OBSERVED'; hash: string; head?: string; now?: string }
   | { type: 'WAIVER_ADDED'; waiver: Omit<Waiver, 'createdAt'> & Partial<Pick<Waiver, 'createdAt'>>; now?: string }
   | { type: 'RISK_ADVISORY'; risk: RiskLevel; now?: string }
   | { type: 'PHASE_SET'; phase: RunState['phase']; now?: string }
@@ -199,6 +200,35 @@ export function reduce(run: RunState | null, event: SkegEvent): RunState {
           phase,
           changedFiles: [...set],
           preExistingFiles: event.preExistingFiles ?? run.preExistingFiles,
+        },
+        now,
+      );
+    }
+
+    case 'WORKSPACE_OBSERVED': {
+      const prev = run.observation;
+      const hashChanged = !prev || prev.hash !== event.hash;
+      // 首次观察只记账；hash 变且 observedRevision 仍等于当前 revision → 未记账变化
+      const unaccounted =
+        hashChanged &&
+        !!prev &&
+        prev.observedRevision === run.revision;
+      const nextRevision = unaccounted ? run.revision + 1 : run.revision;
+      let phase = run.phase;
+      if (unaccounted && phase !== 'close') {
+        if (phase === 'orient' || phase === 'prove') phase = 'change';
+      }
+      return touch(
+        {
+          ...run,
+          revision: nextRevision,
+          phase,
+          observation: {
+            hash: event.hash,
+            head: event.head,
+            observedRevision: nextRevision,
+            observedAt: now,
+          },
         },
         now,
       );

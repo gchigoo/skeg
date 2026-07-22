@@ -3,7 +3,11 @@
  * 机制逻辑在 src/，本文件只做宿主桥接。
  */
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import { captureBaseline, reconcileAgainstBaseline } from '../src/baseline.ts';
+import {
+  captureBaseline,
+  computeRunObservation,
+  reconcileAgainstBaseline,
+} from '../src/baseline.ts';
 import { buildCommandCheck, classifyCheckCommand } from '../src/checks.ts';
 import { handleCommand, notifyDiagnostics } from '../src/commands.ts';
 import {
@@ -13,7 +17,7 @@ import {
 import { classifyBashEffect, isMutatingEffect } from '../src/effects.ts';
 import { buildInjectContext } from '../src/inject.ts';
 import { PendingMutationTable } from '../src/pending.ts';
-import { toWorkspacePath } from '../src/paths.ts';
+import { authorizeMutationPaths } from '../src/paths.ts';
 import { healChangedFilesFromGit, runProveChecks } from '../src/prove.ts';
 import { reduce, sameState, type SkegEvent } from '../src/reducer.ts';
 import {
@@ -117,20 +121,19 @@ export default function (pi: ExtensionAPI) {
       `anon_${Date.now().toString(36)}`;
 
     if (tool === 'write' || tool === 'edit') {
-      const expectedPaths: string[] = [];
-      for (const p of pathsFromToolCall(event.toolName, input)) {
-        const wp = toWorkspacePath(ctx.cwd, p);
-        if (wp.outsideWorkspace || wp.relativePath.startsWith('.git/')) {
-          return {
-            block: true,
-            reason: `Skeg blocked write outside workspace or .git: ${p}`,
-          };
-        }
-        expectedPaths.push(wp.relativePath);
+      const auth = authorizeMutationPaths(
+        ctx.cwd,
+        pathsFromToolCall(event.toolName, input),
+      );
+      if (auth.blocked.length > 0) {
+        return {
+          block: true,
+          reason: `Skeg blocked write outside workspace or .git: ${auth.blocked[0].path}`,
+        };
       }
       pendingMutations.set({
         toolCallId,
-        expectedPaths,
+        expectedPaths: auth.allowed,
         effect: { kind: tool as 'write' | 'edit' },
       });
     }
@@ -138,12 +141,28 @@ export default function (pi: ExtensionAPI) {
     if (tool === 'bash' && typeof input.command === 'string') {
       const effect = classifyBashEffect(input.command);
       if (effect.kind === 'read') return undefined;
-      const expectedPaths =
-        effect.kind === 'file-mutation' || effect.kind === 'dependency-mutation'
-          ? effect.paths.map((p) => toWorkspacePath(ctx.cwd, p).relativePath)
-          : [];
-      if (isMutatingEffect(effect) || effect.kind === 'unknown') {
-        pendingMutations.set({ toolCallId, expectedPaths, effect });
+      if (
+        effect.kind === 'file-mutation' ||
+        effect.kind === 'dependency-mutation'
+      ) {
+        const auth = authorizeMutationPaths(ctx.cwd, effect.paths);
+        if (auth.blocked.length > 0) {
+          return {
+            block: true,
+            reason: `Skeg blocked write outside workspace or .git: ${auth.blocked[0].path}`,
+          };
+        }
+        pendingMutations.set({
+          toolCallId,
+          expectedPaths: auth.allowed,
+          effect,
+        });
+      } else if (isMutatingEffect(effect) || effect.kind === 'unknown') {
+        pendingMutations.set({
+          toolCallId,
+          expectedPaths: [],
+          effect,
+        });
       }
     }
 
@@ -154,6 +173,7 @@ export default function (pi: ExtensionAPI) {
 
     const blocked = gatedHits.find((h) => requiresBlock(h.trigger, config));
     if (blocked) {
+      pendingMutations.take(toolCallId);
       return {
         block: true,
         reason: `Skeg blocked (${blocked.trigger}): ${blocked.reason}`,
@@ -191,6 +211,7 @@ export default function (pi: ExtensionAPI) {
     ].join('\n');
 
     if (!ctx.hasUI) {
+      pendingMutations.take(toolCallId);
       return {
         block: true,
         reason: `Skeg blocked (${gatedHits[0].trigger}): ${gatedHits[0].reason}`,
@@ -199,6 +220,7 @@ export default function (pi: ExtensionAPI) {
 
     const ok = await ctx.ui.confirm(title, body);
     if (!ok) {
+      pendingMutations.take(toolCallId);
       await dispatch({ type: 'GATE_RESOLVED', approved: false });
       return {
         block: true,
@@ -305,6 +327,16 @@ export default function (pi: ExtensionAPI) {
         run = healed;
         pi.appendEntry(RUN_ENTRY_TYPE, healed);
       }
+    }
+
+    // 滚动指纹：同路径内容变化等未记账 mutation 必须 bump revision
+    if (run!.changedFiles.length > 0 || run!.observation) {
+      const observed = computeRunObservation(ctx.cwd, run!);
+      await dispatch({
+        type: 'WORKSPACE_OBSERVED',
+        hash: observed.hash,
+        head: observed.head,
+      });
     }
 
     if (

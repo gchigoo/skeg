@@ -101,8 +101,9 @@ function matchConfiguredCommands(
 
 /**
  * 将 bash 命令分类为 command check，非验证命令返回 null。
+ * 优先级：targeted-test → 配置 matcher → bare test → typecheck / lint / build。
  * @param command bash 命令
- * @param config 项目配置（commands 覆盖优先）
+ * @param config 项目配置
  * @returns 分类结果或 null
  */
 export function classifyCheckCommand(
@@ -112,13 +113,14 @@ export function classifyCheckCommand(
   const cmd = command.trim();
   if (!cmd) return null;
 
+  // targeted-test 必须先于配置匹配，避免 /init 探测的 "test" 降级路径参数命令
+  if (looksTargeted(cmd)) {
+    return { kind: 'command', name: 'targeted-test' };
+  }
+
   const configured = matchConfiguredCommands(cmd, config.checks.commands);
   if (configured) {
     return { kind: 'command', name: configured };
-  }
-
-  if (looksTargeted(cmd)) {
-    return { kind: 'command', name: 'targeted-test' };
   }
 
   if (BARE_TEST_RE.test(cmd)) {

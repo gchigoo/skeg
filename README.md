@@ -86,4 +86,4 @@ npm run verify    # test + typecheck + budgets + adversarial + dogfood
 npm run smoke     # Pi 实机抽测（需本机已装 pi）
 ```
 
-See `DESIGN.md`, `NON_GOALS.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`.
+See `NON_GOALS.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`.
