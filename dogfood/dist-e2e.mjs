@@ -21,17 +21,10 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { npmExecArgs } from './npm-cli.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..');
-/** 通过 node + npm-cli.js 调用，避免 Windows 上 npm.cmd ENOENT */
-const NPM_CLI = join(
-  dirname(process.execPath),
-  'node_modules',
-  'npm',
-  'bin',
-  'npm-cli.js',
-);
 const PROVIDER_NAMES = [
   'skeg-provider-postgres',
   'skeg-provider-monorepo',
@@ -72,8 +65,10 @@ function run(cwd, args, opts = {}) {
  * @returns {string}
  */
 function runNpm(cwd, npmArgs) {
-  return run(cwd, [process.execPath, NPM_CLI, ...npmArgs], {
+  const { file, args, shell } = npmExecArgs(npmArgs);
+  return run(cwd, [file, ...args], {
     env: { ...process.env, npm_config_cache: join(tmpdir(), 'skeg-npm-cache') },
+    shell: Boolean(shell),
   });
 }
 
@@ -155,9 +150,11 @@ async function main() {
     extractPackage(skegPackCopy, skegExtract);
     const requiredFiles = [
       'extensions/core.ts',
+      'extensions/compat.ts',
       'src/provider-api.ts',
       'src/providers.ts',
       'src/trust.ts',
+      'src/hostsession.ts',
       'package.json',
     ];
     for (const f of requiredFiles) {

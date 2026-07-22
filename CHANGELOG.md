@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0 — 2026-07-22
+
+Compat Split + CI 硬化。
+
+### Added
+- `extensions/compat.ts`：扁平 `/init` `/run` `/status` `/finish` `/record`（默认仍在 `pi.extensions`；v1.0 将移除）
+- `src/hostsession.ts`：core / compat 共享 gate acknowledgement 与 pending mutations
+- CI：`check:providers`、`dogfood`、`dogfood:dist`（三平台 × Node 22/24）
+- `dogfood/npm-cli.mjs`：跨平台 npm 解析（`npm_execpath` → Windows/POSIX 布局 → 裸 `npm`）
+
+### Changed
+- `extensions/core.ts` 只注册 `/skeg`；事件钩子从 session entries 同步 RunState（兼容 compat 写入）
+- 删除 `CheckResult` 别名、`resolveProviderSpec`；`SkegConfig.riskTriggers` 字段移除（加载仍兼容旧 JSON 并告警）
+
 ## 0.7.0 — 2026-07-22
 
 Ecosystem Proof.

@@ -95,23 +95,6 @@ const EMPTY: LoadedProviders = {
 };
 
 /**
- * @deprecated 使用 resolveTrustedProviderTarget
- * @param cwd 项目根
- * @param spec 相对路径或包名
- * @returns import 目标或原样包名
- */
-export function resolveProviderSpec(cwd: string, spec: string): string {
-  const classified = classifyProviderSpec(spec);
-  if (!classified.ok) return spec.trim();
-  const resolved = resolveTrustedProviderTarget(cwd, spec);
-  if (!resolved.ok) {
-    if (classified.kind === 'package') return classified.name;
-    return spec.trim();
-  }
-  return resolved.target;
-}
-
-/**
  * 解析模块为 V1 或旧格式。
  * @param mod 动态 import 结果
  * @param fallbackId 配置 id

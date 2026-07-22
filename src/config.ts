@@ -54,12 +54,6 @@ export const DEFAULT_CONFIG: SkegConfig = {
   ],
   authPaths: [],
   apiPaths: [],
-  riskTriggers: {
-    dependencyChange: 'guarded',
-    publicApiChange: 'guarded',
-    databaseMigration: 'guarded',
-    authChange: 'guarded',
-  },
   policies: { ...DEFAULT_POLICIES },
   checks: {
     default: ['targeted-test', 'diff'],
@@ -170,10 +164,6 @@ function mergeConfig(
     dependencyFiles: strArr('dependencyFiles', DEFAULT_CONFIG.dependencyFiles),
     authPaths: strArr('authPaths', DEFAULT_CONFIG.authPaths),
     apiPaths: strArr('apiPaths', DEFAULT_CONFIG.apiPaths),
-    riskTriggers: {
-      ...DEFAULT_CONFIG.riskTriggers!,
-      ...((raw.riskTriggers as SkegConfig['riskTriggers']) ?? {}),
-    },
     policies,
     checks: {
       default: Array.isArray(checksRaw.default)

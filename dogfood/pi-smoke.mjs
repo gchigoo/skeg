@@ -15,6 +15,7 @@ import {
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { npmExecArgs } from './npm-cli.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -50,17 +51,12 @@ function installSkegFromTarball(root) {
       }),
     );
   }
-  const npmCli = join(
-    dirname(process.execPath),
-    'node_modules',
-    'npm',
-    'bin',
-    'npm-cli.js',
-  );
-  const packOut = execFileSync(process.execPath, [npmCli, 'pack', '--json'], {
+  const packCmd = npmExecArgs(['pack', '--json']);
+  const packOut = execFileSync(packCmd.file, packCmd.args, {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
+    shell: Boolean(packCmd.shell),
   });
   const trimmed = packOut.trim();
   const jsonStart = Math.min(
@@ -74,11 +70,17 @@ function installSkegFromTarball(root) {
   const filename = Array.isArray(parsed) ? parsed[0].filename : parsed.filename;
   const tarball = join(REPO_ROOT, filename);
   try {
-    execFileSync(
-      process.execPath,
-      [npmCli, 'install', '--no-save', '--no-package-lock', tarball],
-      { cwd: root, stdio: 'inherit' },
-    );
+    const installCmd = npmExecArgs([
+      'install',
+      '--no-save',
+      '--no-package-lock',
+      tarball,
+    ]);
+    execFileSync(installCmd.file, installCmd.args, {
+      cwd: root,
+      stdio: 'inherit',
+      shell: Boolean(installCmd.shell),
+    });
   } finally {
     try {
       unlinkSync(tarball);

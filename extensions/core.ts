@@ -16,8 +16,12 @@ import {
 } from '../src/config.ts';
 import { classifyBashEffect, isMutatingEffect } from '../src/effects.ts';
 import { inspectExitIntegrity } from '../src/exitintegrity.ts';
+import {
+  acknowledgedGates,
+  clearHostSession,
+  pendingMutations,
+} from '../src/hostsession.ts';
 import { buildInjectContext } from '../src/inject.ts';
-import { PendingMutationTable } from '../src/pending.ts';
 import { authorizeMutationPaths } from '../src/paths.ts';
 import {
   classifyWithProviders,
@@ -51,10 +55,6 @@ export default function (pi: ExtensionAPI) {
   let run: RunState | null = null;
   let config: SkegConfig = loadConfig(process.cwd());
   let providers: LoadedProviders = emptyProviders();
-  const acknowledged = new Set<string>();
-  const pendingMutations = new PendingMutationTable();
-  /** 本 session 已提示过的扁平弃用命令 */
-  const deprecatedWarned = new Set<string>();
   /** 本 session 运行时失败后禁用的 provider spec */
   const disabledProviderSpecs = new Set<string>();
   /** 已对用户提示过的 provider 错误（每 spec 一次） */
@@ -62,6 +62,25 @@ export default function (pi: ExtensionAPI) {
   /** 本 session 是否已提示过 providers 配置变更需 reload */
   let providersReloadHinted = false;
   let queue: Promise<void> = Promise.resolve();
+
+  /**
+   * 从 session entries 同步 RunState（compat 扁平命令写 entries 后保持一致）。
+   * 仅在内存为空、或 entries 更新时覆盖，避免覆盖尚未 flush 的 in-memory 更新。
+   * @param ctx 含 sessionManager 的上下文
+   */
+  const syncRunFromEntries = (ctx: {
+    sessionManager: { getEntries: () => Array<{ type?: string; customType?: string; data?: unknown }> };
+  }) => {
+    const fromEntries = latestRunFromEntries(ctx.sessionManager.getEntries());
+    if (!fromEntries) return;
+    if (
+      !run ||
+      fromEntries.id !== run.id ||
+      fromEntries.updatedAt > run.updatedAt
+    ) {
+      run = fromEntries;
+    }
+  };
 
   const reloadProviders = async (cwd: string, next: SkegConfig) => {
     providers = await loadProviders(cwd, next);
@@ -109,9 +128,7 @@ export default function (pi: ExtensionAPI) {
     dispatch,
     appendEntry: (type: string, data: RunState) => pi.appendEntry(type, data),
     clearSession: () => {
-      acknowledged.clear();
-      pendingMutations.clear();
-      deprecatedWarned.clear();
+      clearHostSession();
     },
     getEntries: () => [] as Array<{ type?: string; customType?: string; data?: unknown }>,
     getProviders: () => providers,
@@ -148,7 +165,7 @@ export default function (pi: ExtensionAPI) {
       );
     }
     notifyDiagnostics(ctx.ui, loaded.diagnostics);
-    if (!run) run = latestRunFromEntries(ctx.sessionManager.getEntries());
+    syncRunFromEntries(ctx);
     commandDeps.getEntries = () => ctx.sessionManager.getEntries();
     commandDeps.reloadProviders = async () => {
       const cfg = loadConfigWithDiagnostics(ctx.cwd);
@@ -170,8 +187,7 @@ export default function (pi: ExtensionAPI) {
           risk: config.defaultPolicy,
           baseline: captureBaseline(ctx.cwd),
         });
-        acknowledged.clear();
-        pendingMutations.clear();
+        clearHostSession();
       }
     }
 
@@ -185,6 +201,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on('tool_call', async (event, ctx) => {
+    syncRunFromEntries(ctx);
     if (!isOpenRun(run)) return undefined;
     if (run!.pendingGate?.resolved) await dispatch({ type: 'GATE_CLEARED' });
 
@@ -284,8 +301,8 @@ export default function (pi: ExtensionAPI) {
 
     const fp = actionFingerprint(gatedHits, event.toolName, input);
     if (
-      gatedHits.every((h) => acknowledged.has(gateAcknowledgementKey(h))) ||
-      acknowledged.has(fp)
+      gatedHits.every((h) => acknowledgedGates.has(gateAcknowledgementKey(h))) ||
+      acknowledgedGates.has(fp)
     ) {
       return undefined;
     }
@@ -330,13 +347,14 @@ export default function (pi: ExtensionAPI) {
       };
     }
 
-    for (const h of gatedHits) acknowledged.add(gateAcknowledgementKey(h));
-    acknowledged.add(fp);
+    for (const h of gatedHits) acknowledgedGates.add(gateAcknowledgementKey(h));
+    acknowledgedGates.add(fp);
     await dispatch({ type: 'GATE_RESOLVED', approved: true });
     return undefined;
   });
 
   pi.on('tool_result', async (event, ctx) => {
+    syncRunFromEntries(ctx);
     if (!isOpenRun(run)) return undefined;
     config = loadConfig(ctx.cwd);
 
@@ -398,7 +416,11 @@ export default function (pi: ExtensionAPI) {
   const settle = async (ctx: {
     cwd: string;
     ui: { notify: (m: string, l: 'info' | 'warning' | 'error') => void };
+    sessionManager: {
+      getEntries: () => Array<{ type?: string; customType?: string; data?: unknown }>;
+    };
   }) => {
+    syncRunFromEntries(ctx);
     if (!isOpenRun(run)) return;
     if (run!.pendingGate && !run!.pendingGate.resolved) {
       ctx.ui.notify(
@@ -477,29 +499,6 @@ export default function (pi: ExtensionAPI) {
   pi.on('session_before_compact', async () => {
     if (run) pi.appendEntry(RUN_ENTRY_TYPE, run);
   });
-
-  for (const name of ['init', 'run', 'status', 'finish', 'record'] as const) {
-    pi.registerCommand(name, {
-      description: `Skeg ${name} (deprecated: use /skeg ${name === 'run' ? 'start' : name})`,
-      handler: async (args, ctx) => {
-        if (!deprecatedWarned.has(name)) {
-          deprecatedWarned.add(name);
-          const alias = name === 'run' ? 'start' : name;
-          ctx.ui.notify(
-            `Skeg: /${name} is deprecated; use /skeg ${alias}`,
-            'info',
-          );
-        }
-        commandDeps.getEntries = () => ctx.sessionManager.getEntries();
-        commandDeps.reloadProviders = async () => {
-          const cfg = loadConfigWithDiagnostics(ctx.cwd);
-          config = cfg.config;
-          return reloadProviders(ctx.cwd, config);
-        };
-        await handleCommand(name, args || '', ctx, commandDeps);
-      },
-    });
-  }
 
   pi.registerCommand('skeg', {
     description:

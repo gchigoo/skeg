@@ -26,9 +26,6 @@ export type GateScope = 'call' | 'path' | 'run';
 
 export type GateStatus = 'pending' | 'approved' | 'denied';
 
-/** @deprecated 使用 CheckRun；保留别名便于渐进迁移 */
-export type CheckResult = CheckRun;
-
 /** 证据/命中的来源标注（builtin 或第三方 Provider） */
 export type EvidenceSource = 'builtin' | `provider:${string}`;
 
@@ -141,15 +138,6 @@ export type SkegConfig = {
   dependencyFiles: string[];
   authPaths: string[];
   apiPaths: string[];
-  /**
-   * @deprecated 使用 policies；加载时会兼容并转成 policies
-   */
-  riskTriggers?: {
-    dependencyChange: RiskLevel;
-    publicApiChange: RiskLevel;
-    databaseMigration: RiskLevel;
-    authChange: RiskLevel;
-  };
   policies: Record<TriggerId, TriggerPolicy>;
   checks: {
     default: string[];

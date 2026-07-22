@@ -48,7 +48,7 @@ Prompt template:
 
 ## Status
 
-**v0.7.0** — Ecosystem Proof：三个只依赖公共 API 的真实 Provider 示例、`npm pack` 干净沙箱端到端、普通子串 CheckMatcher 拒绝。
+**v0.8.0** — Compat Split + CI 硬化：扁平命令拆到 `extensions/compat.ts`；CI 跑 provider conformance / dogfood / dist-e2e。
 
 ```bash
 npm run verify
@@ -59,6 +59,8 @@ npm run dogfood:adversarial
 npm run dogfood:runtime
 npm run dogfood:host -- --cwd . --profile skeg
 ```
+
+扁平命令 `/init` `/run` `/status` `/finish` `/record` 由 `extensions/compat.ts` 提供（默认启用，仍提示改用 `/skeg …`）。可从 `package.json` → `pi.extensions` 移除该条目以禁用。v1.0 将从默认列表移除 compat。
 
 ## Config highlights
 
