@@ -1,12 +1,12 @@
 /**
- * CheckSpec：可配置的验证检查定义。
+ * CheckSpec：可配置的验证检查定义与结构化 matcher。
  */
-import type { RiskLevel, SkegConfig } from './types.ts';
+import type { CheckMatcher, RiskLevel, SkegConfig } from './types.ts';
 
 export type CheckSpec = {
   id: string;
-  /** 子串或 /regex/ 形式 */
-  match: string;
+  /** 字符串（子串或 /regex/）或结构化 CheckMatcher */
+  match: string | CheckMatcher;
   /** 适用风险级别；缺省两端都适用 */
   risk?: RiskLevel | 'both';
 };
@@ -39,31 +39,112 @@ export function requiredCheckNames(
 }
 
 /**
- * 为 package script 名生成锚定正则（避免 `echo test` 等假阳性）。
- * @param script package.json script 名
- * @returns /regex/i 形式
+ * 判断值是否为结构化 CheckMatcher。
+ * @param value 候选
+ * @returns 是否 matcher
  */
-function packageScriptMatcher(script: string): string {
-  const escaped = script.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return `/^(npm|pnpm|yarn|bun)\\s+(run\\s+)?${escaped}(?:\\s|$)/i`;
+export function isCheckMatcher(value: unknown): value is CheckMatcher {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const v = value as Record<string, unknown>;
+  if (v.kind === 'package-script' && typeof v.script === 'string') return true;
+  if (
+    v.kind === 'argv' &&
+    typeof v.executable === 'string' &&
+    Array.isArray(v.args) &&
+    v.args.every((a) => typeof a === 'string')
+  ) {
+    return true;
+  }
+  if (v.kind === 'regex' && typeof v.pattern === 'string') return true;
+  return false;
+}
+
+/**
+ * 测试命令是否匹配单个 CheckMatcher / 字符串模式。
+ * @param command bash 命令
+ * @param match 匹配定义
+ * @returns 是否命中
+ */
+export function matchCheckPattern(
+  command: string,
+  match: string | CheckMatcher,
+): boolean {
+  if (typeof match === 'string') {
+    if (!match) return false;
+    if (match.startsWith('/') && match.lastIndexOf('/') > 0) {
+      const last = match.lastIndexOf('/');
+      const body = match.slice(1, last);
+      const flags = match.slice(last + 1);
+      try {
+        return new RegExp(body, flags).test(command);
+      } catch {
+        return false;
+      }
+    }
+    return command.includes(match);
+  }
+
+  if (match.kind === 'package-script') {
+    const escaped = match.script.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(
+      String.raw`^(npm|pnpm|yarn|bun)\s+(run\s+)?${escaped}(?:\s|$)`,
+      'i',
+    ).test(command.trim());
+  }
+
+  if (match.kind === 'regex') {
+    const pattern = match.pattern;
+    if (pattern.startsWith('/') && pattern.lastIndexOf('/') > 0) {
+      const last = pattern.lastIndexOf('/');
+      try {
+        return new RegExp(pattern.slice(1, last), pattern.slice(last + 1)).test(
+          command,
+        );
+      } catch {
+        return false;
+      }
+    }
+    try {
+      return new RegExp(pattern, 'i').test(command);
+    } catch {
+      return false;
+    }
+  }
+
+  if (match.kind === 'argv') {
+    const tokens = command.trim().match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [];
+    const normalized = tokens.map((t) => t.replace(/^['"]|['"]$/g, ''));
+    if (normalized.length === 0) return false;
+    if (normalized[0] !== match.executable) return false;
+    // 要求 match.args 按序出现在 executable 之后
+    let idx = 1;
+    for (const arg of match.args) {
+      const found = normalized.indexOf(arg, idx);
+      if (found === -1) return false;
+      idx = found + 1;
+    }
+    return true;
+  }
+
+  return false;
 }
 
 /**
  * 从 package.json scripts 探测常用命令匹配。
  * @param scripts package.json scripts
- * @returns checks.commands 片段（锚定正则）
+ * @returns checks.commands 片段（结构化 package-script）
  */
 export function detectCommandsFromScripts(
   scripts: Record<string, string>,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (scripts.test) out.test = packageScriptMatcher('test');
+): Record<string, CheckMatcher> {
+  const out: Record<string, CheckMatcher> = {};
+  if (scripts.test) out.test = { kind: 'package-script', script: 'test' };
   if (scripts.typecheck) {
-    out.typecheck = packageScriptMatcher('typecheck');
+    out.typecheck = { kind: 'package-script', script: 'typecheck' };
   } else if (scripts['type-check']) {
-    out.typecheck = packageScriptMatcher('type-check');
+    out.typecheck = { kind: 'package-script', script: 'type-check' };
   }
-  if (scripts.lint) out.lint = packageScriptMatcher('lint');
-  if (scripts.build) out.build = packageScriptMatcher('build');
+  if (scripts.lint) out.lint = { kind: 'package-script', script: 'lint' };
+  if (scripts.build) out.build = { kind: 'package-script', script: 'build' };
   return out;
 }

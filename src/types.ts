@@ -121,6 +121,12 @@ export type TriggerPolicy = {
   action: PolicyAction;
 };
 
+/** 结构化 check 命令匹配器 */
+export type CheckMatcher =
+  | { kind: 'package-script'; script: string }
+  | { kind: 'argv'; executable: string; args: string[] }
+  | { kind: 'regex'; pattern: string };
+
 export type SkegConfig = {
   defaultPolicy: RiskLevel;
   /** 注入指导密度，默认 standard */
@@ -144,11 +150,13 @@ export type SkegConfig = {
     default: string[];
     guarded: string[];
     /**
-     * 可选：check 名 → 命令匹配（子串或 /regex/ 形式）。
+     * 可选：check 名 → 命令匹配（字符串子串/regex，或结构化 CheckMatcher）。
      * 匹配顺序：targeted-test 启发式 → 本配置 → bare test / typecheck / lint / build。
      */
-    commands?: Record<string, string>;
+    commands?: Record<string, string | CheckMatcher>;
   };
+  /** 可选：第三方 Provider 模块路径（相对 cwd 或包名） */
+  providers?: string[];
 };
 
 export type RiskHit = {

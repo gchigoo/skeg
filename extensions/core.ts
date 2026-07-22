@@ -18,6 +18,13 @@ import { classifyBashEffect, isMutatingEffect } from '../src/effects.ts';
 import { buildInjectContext } from '../src/inject.ts';
 import { PendingMutationTable } from '../src/pending.ts';
 import { authorizeMutationPaths } from '../src/paths.ts';
+import {
+  classifyWithProviders,
+  emptyProviders,
+  loadProviders,
+  mergePolicyHits,
+  type LoadedProviders,
+} from '../src/providers.ts';
 import { healChangedFilesFromGit, runProveChecks } from '../src/prove.ts';
 import { reduce, sameState, type SkegEvent } from '../src/reducer.ts';
 import {
@@ -38,9 +45,17 @@ import { RUN_ENTRY_TYPE, type RunState, type SkegConfig } from '../src/types.ts'
 export default function (pi: ExtensionAPI) {
   let run: RunState | null = null;
   let config: SkegConfig = loadConfig(process.cwd());
+  let providers: LoadedProviders = emptyProviders();
   const acknowledged = new Set<string>();
   const pendingMutations = new PendingMutationTable();
+  /** 本 session 已提示过的扁平弃用命令 */
+  const deprecatedWarned = new Set<string>();
   let queue: Promise<void> = Promise.resolve();
+
+  const reloadProviders = async (cwd: string, next: SkegConfig) => {
+    providers = await loadProviders(cwd, next);
+    return providers.diagnostics;
+  };
 
   const dispatch = (event: SkegEvent): Promise<void> => {
     queue = queue.then(() => {
@@ -67,6 +82,7 @@ export default function (pi: ExtensionAPI) {
     clearSession: () => {
       acknowledged.clear();
       pendingMutations.clear();
+      deprecatedWarned.clear();
     },
     getEntries: () => [] as Array<{ type?: string; customType?: string; data?: unknown }>,
   };
@@ -74,7 +90,8 @@ export default function (pi: ExtensionAPI) {
   pi.on('session_start', async (_event, ctx) => {
     const loaded = loadConfigWithDiagnostics(ctx.cwd);
     config = loaded.config;
-    notifyDiagnostics(ctx.ui, loaded.diagnostics);
+    const providerDiags = await reloadProviders(ctx.cwd, config);
+    notifyDiagnostics(ctx.ui, [...loaded.diagnostics, ...providerDiags]);
     run = latestRunFromEntries(ctx.sessionManager.getEntries());
     commandDeps.getEntries = () => ctx.sessionManager.getEntries();
   });
@@ -82,7 +99,8 @@ export default function (pi: ExtensionAPI) {
   pi.on('before_agent_start', async (event, ctx) => {
     const loaded = loadConfigWithDiagnostics(ctx.cwd);
     config = loaded.config;
-    notifyDiagnostics(ctx.ui, loaded.diagnostics);
+    const providerDiags = await reloadProviders(ctx.cwd, config);
+    notifyDiagnostics(ctx.ui, [...loaded.diagnostics, ...providerDiags]);
     if (!run) run = latestRunFromEntries(ctx.sessionManager.getEntries());
     commandDeps.getEntries = () => ctx.sessionManager.getEntries();
 
@@ -105,7 +123,9 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    const content = buildInjectContext(run, config, ctx.cwd);
+    const content = buildInjectContext(run, config, ctx.cwd, {
+      recordSelectors: providers.records,
+    });
     const base = event.systemPrompt ?? '';
     return { systemPrompt: base ? `${base}\n\n${content}` : content };
   });
@@ -166,9 +186,14 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    const gatedHits = scanToolCall(event.toolName, input, config).filter((h) =>
-      requiresGate(h.trigger, config),
+    const paths = pathsFromToolCall(event.toolName, input);
+    const merged = mergePolicyHits(
+      scanToolCall(event.toolName, input, config),
+      { toolName: event.toolName, input, paths },
+      config,
+      providers.policies,
     );
+    const gatedHits = merged.filter((h) => requiresGate(h.trigger, config));
     if (gatedHits.length === 0) return undefined;
 
     const blocked = gatedHits.find((h) => requiresBlock(h.trigger, config));
@@ -259,7 +284,12 @@ export default function (pi: ExtensionAPI) {
     if (event.toolName.toLowerCase() === 'bash') {
       const input = event.input as Record<string, unknown>;
       const command = typeof input.command === 'string' ? input.command : '';
-      const classified = classifyCheckCommand(command, config);
+      const classified = classifyWithProviders(
+        command,
+        config,
+        classifyCheckCommand(command, config),
+        providers.checks,
+      );
       if (classified) {
         const output =
           typeof event.content === 'string'
@@ -374,8 +404,16 @@ export default function (pi: ExtensionAPI) {
 
   for (const name of ['init', 'run', 'status', 'finish', 'record'] as const) {
     pi.registerCommand(name, {
-      description: `Skeg ${name}`,
+      description: `Skeg ${name} (deprecated: use /skeg ${name === 'run' ? 'start' : name})`,
       handler: async (args, ctx) => {
+        if (!deprecatedWarned.has(name)) {
+          deprecatedWarned.add(name);
+          const alias = name === 'run' ? 'start' : name;
+          ctx.ui.notify(
+            `Skeg: /${name} is deprecated; use /skeg ${alias}`,
+            'info',
+          );
+        }
         commandDeps.getEntries = () => ctx.sessionManager.getEntries();
         await handleCommand(name, args || '', ctx, commandDeps);
       },

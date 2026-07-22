@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.0 — 2026-07-22
+
+Extension Contract.
+
+### Added
+- `PolicyProvider` / `CheckProvider` / `RecordSelector`（`src/providers.ts`）；`.skeg/config.json` 的 `providers[]` 动态加载
+- 结构化 `CheckMatcher`：`package-script` / `argv` / `regex`；`/init` 探测改为 package-script
+- 扁平命令 `/init` `/run` `/status` `/finish` `/record` 每 session 首次使用弃用提示
+
+### Changed
+- tool_call 合并 provider RiskHit（仅追加）；tool_result 在内置分类为 null 时询问 CheckProvider
+- inject records 可被 RecordSelector 替换（仍受 300-token 预算）
+- runtime invariants：settle 幂等、第三方 check 进入 closure
+
 ## 0.5.1 — 2026-07-22
 
 Seal the False-Green Gaps.

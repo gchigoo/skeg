@@ -1,7 +1,8 @@
 /**
  * command check 自动记账：从 bash 验证命令结果写入 RunState.checks。
  */
-import type { CheckRun, SkegConfig } from './types.ts';
+import { matchCheckPattern } from './checkspec.ts';
+import type { CheckMatcher, CheckRun, SkegConfig } from './types.ts';
 
 export type ClassifiedCheck = {
   kind: 'command';
@@ -71,30 +72,19 @@ function looksTargeted(command: string): boolean {
 }
 
 /**
- * 用配置 commands 映射匹配命令。
+ * 用配置 commands 映射匹配命令（字符串或结构化 CheckMatcher）。
  * @param command bash 命令
- * @param commands check 名 → 子串或 /regex/
+ * @param commands check 名 → 匹配定义
  * @returns 命中的 check 名，或 null
  */
 function matchConfiguredCommands(
   command: string,
-  commands: Record<string, string> | undefined,
+  commands: Record<string, string | CheckMatcher> | undefined,
 ): string | null {
   if (!commands) return null;
   for (const [name, pattern] of Object.entries(commands)) {
     if (!pattern) continue;
-    if (pattern.startsWith('/') && pattern.lastIndexOf('/') > 0) {
-      const last = pattern.lastIndexOf('/');
-      const body = pattern.slice(1, last);
-      const flags = pattern.slice(last + 1);
-      try {
-        if (new RegExp(body, flags).test(command)) return name;
-      } catch {
-        // 非法正则忽略，继续
-      }
-    } else if (command.includes(pattern)) {
-      return name;
-    }
+    if (matchCheckPattern(command, pattern)) return name;
   }
   return null;
 }

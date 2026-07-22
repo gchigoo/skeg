@@ -5,9 +5,15 @@
 /** 注入硬预算（tokens）；v0.5 与 record 相关性加载同版收至 300 */
 export const INJECT_TOKEN_BUDGET = 300;
 import { loadProjectSummary } from './config.ts';
+import { selectRecordsWithProviders, type RecordSelector } from './providers.ts';
 import { selectRelevantRecords } from './record.ts';
 import { currentChecks, hasFreshPass } from './run.ts';
 import type { Phase, RunState, SkegConfig } from './types.ts';
+
+export type InjectOptions = {
+  /** 第三方 RecordSelector；存在时优先于内置相关性选择 */
+  recordSelectors?: RecordSelector[];
+};
 
 /** standard guidance 注入的 records 索引条数上限。 */
 const RECORDS_INDEX_LIMIT = 5;
@@ -51,12 +57,14 @@ function phaseHint(phase: Phase, missing: string[]): string {
  * @param run 当前 run（可空）
  * @param config 配置
  * @param cwd 项目根
+ * @param options 可选 RecordSelector 等
  * @returns 注入文本
  */
 export function buildInjectContext(
   run: RunState | null,
   config: SkegConfig,
   cwd: string,
+  options: InjectOptions = {},
 ): string {
   if (!run || run.status === 'done' || run.status === 'abandoned') {
     return [
@@ -112,12 +120,17 @@ export function buildInjectContext(
       lines.push('Project:');
       lines.push(summary);
     }
-    const records = selectRelevantRecords(
-      cwd,
-      run.intent,
-      run.changedFiles,
-      RECORDS_INDEX_LIMIT,
-    );
+    const records = selectRecordsWithProviders(
+      { cwd, intent: run.intent, changedFiles: run.changedFiles },
+      options.recordSelectors ?? [],
+      () =>
+        selectRelevantRecords(
+          cwd,
+          run.intent,
+          run.changedFiles,
+          RECORDS_INDEX_LIMIT,
+        ),
+    ).slice(0, RECORDS_INDEX_LIMIT);
     if (records.length > 0) {
       lines.push('Records (relevant):');
       for (const rec of records) {

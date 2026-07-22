@@ -1,6 +1,6 @@
 {
   "name": "@gchigoo/skeg",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Minimal engineering workflow for coding agents. Stay light. Hold course.",
   "type": "module",
   "keywords": [

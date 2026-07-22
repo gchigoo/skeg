@@ -12,3 +12,4 @@
 - 不建立 Web 管理后台
 - 不提供复杂 Pack DSL（至少出现 3 个真实 Pack 且共享同一模式后再抽象）
 - 不维护大量兼容别名
+- 扩展可以增加 Policy / Check / Record（`config.providers`）；扩展不能增加新的核心阶段状态机

@@ -341,6 +341,80 @@ async function main() {
     }
   });
 
+  await inv('settle 幂等：无新变化连续两次 observe → revision 不再递增', () => {
+    const cwd = makeRepo();
+    try {
+      writeFileSync(join(cwd, 'src/a.ts'), 'export const a = 2;\n', 'utf8');
+      let run = startRun('idempotent settle', 'lean', captureBaseline(cwd));
+      run = reduce(run, {
+        type: 'MUTATION_COMMITTED',
+        paths: ['src/a.ts'],
+      });
+      const obs1 = computeRunObservation(cwd, run);
+      run = reduce(run, {
+        type: 'WORKSPACE_OBSERVED',
+        hash: obs1.hash,
+        head: obs1.head,
+      });
+      const revAfterFirst = run.revision;
+      const obs2 = computeRunObservation(cwd, run);
+      assert.equal(obs2.hash, obs1.hash);
+      run = reduce(run, {
+        type: 'WORKSPACE_OBSERVED',
+        hash: obs2.hash,
+        head: obs2.head,
+      });
+      assert.equal(run.revision, revAfterFirst);
+      const obs3 = computeRunObservation(cwd, run);
+      run = reduce(run, {
+        type: 'WORKSPACE_OBSERVED',
+        hash: obs3.hash,
+        head: obs3.head,
+      });
+      assert.equal(run.revision, revAfterFirst);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  await inv('第三方 CheckProvider 分类的 check 进入 closure 证据链', async () => {
+    const { classifyWithProviders } = await import(
+      pathToFileURL(join(root, 'src/providers.ts')).href
+    );
+    const classified = classifyWithProviders(
+      'cargo test',
+      DEFAULT_CONFIG,
+      classifyCheckCommand('cargo test', DEFAULT_CONFIG),
+      [
+        {
+          classify: (command) =>
+            command.includes('cargo test')
+              ? { kind: 'command', name: 'test' }
+              : null,
+        },
+      ],
+    );
+    assert.deepEqual(classified, { kind: 'command', name: 'test' });
+
+    let run = createRun('provider check');
+    run = upsertCheck(run, {
+      kind: 'command',
+      name: classified.name,
+      passed: true,
+      command: 'cargo test',
+    });
+    run = upsertCheck(run, { kind: 'diff', name: 'diff', passed: true });
+    // lean default 需要 targeted-test；用 waive 模拟 provider check 满足 guarded 的 test
+    const guardedConfig = {
+      ...DEFAULT_CONFIG,
+      checks: {
+        ...DEFAULT_CONFIG.checks,
+        default: ['test', 'diff'],
+      },
+    };
+    assert.equal(evaluateClosure(run, guardedConfig).ok, true);
+  });
+
   // 结构化 metrics：任一失败用例标记对应维度
   const aggregate = {
     falseDone: results.some((r) => !r.ok && r.name.includes('closure')),

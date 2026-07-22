@@ -36,7 +36,7 @@ In a repo:
 /skeg finish
 ```
 
-Flat aliases (`/init` `/run` `/status` `/finish` `/record`) remain for compatibility.
+Flat aliases (`/init` `/run` `/status` `/finish` `/record`) remain for compatibility but emit a deprecation notice (prefer `/skeg …`).
 
 Prompt template:
 
@@ -48,12 +48,13 @@ Prompt template:
 
 ## Status
 
-**v0.5.0** — No False Green：revision/stale evidence、closure evaluator、baseline 归因、effect classifier、多 hit gate、`/skeg` 命名空间、对抗不变量 dogfood、分发与 CI。
+**v0.6.0** — Extension Contract：`PolicyProvider` / `CheckProvider` / `RecordSelector`、结构化 `CheckMatcher`、扁平命令弃用提示；在 v0.5.1 假绿封口之上对外开放扩展点。
 
 ```bash
 npm run verify
 npm run smoke
 npm run dogfood:adversarial
+npm run dogfood:runtime
 npm run dogfood:host -- --cwd . --profile skeg
 ```
 
@@ -69,14 +70,19 @@ npm run dogfood:host -- --cwd . --profile skeg
   "checks": {
     "default": ["targeted-test", "diff"],
     "guarded": ["test", "typecheck", "lint", "diff"],
-    "commands": { "unit-smoke": "make smoke" }
-  }
+    "commands": {
+      "test": { "kind": "package-script", "script": "test" },
+      "unit-smoke": { "kind": "regex", "pattern": "/^make\\s+smoke(?:\\s|$)/i" }
+    }
+  },
+  "providers": ["./skeg-providers/my-policy.mjs"]
 }
 ```
 
 - 成功修改工作区 → `revision+1`，旧 checks 变 stale；`/finish` 只接受当前 revision 证据
 - `/skeg finish --waive "reason"` 显式承担风险
 - `cat migrations/*.sql` 为 read，不记变更、不弹 gate
+- Providers 可追加 Policy / Check / Record；不能增加新的核心阶段状态机（见 `NON_GOALS.md`）
 
 ## Develop
 

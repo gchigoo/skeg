@@ -219,9 +219,27 @@ async function main() {
     assert.ok(run.checks.some((c) => c.name === 'targeted-test'));
   }, { note: 'queue 语义由 reducer 串行保证；Pi 交错留 M2 host 验证' });
 
-  await inv('Pi 自动 retry → 不得过早进入 prove', () => {}, {
-    skip: true,
-    note: 'M2 agent_settled host 验证',
+  await inv('Pi 自动 retry / settle 幂等 → 无变化不递增 revision', async () => {
+    // 完整 fixture 在 runtime-invariants；此处断言 WORKSPACE_OBSERVED 幂等语义
+    const { computeRunObservation } = await import(
+      pathToFileURL(join(root, 'src/baseline.ts')).href
+    );
+    const cwd = mkdtempSync(join(tmpdir(), 'skeg-settle-'));
+    try {
+      mkdirSync(join(cwd, 'src'), { recursive: true });
+      writeFileSync(join(cwd, 'src/a.ts'), 'x\n', 'utf8');
+      let run = createRun('settle');
+      run = reduce(run, { type: 'MUTATION_COMMITTED', paths: ['src/a.ts'] });
+      const obs = computeRunObservation(cwd, run, () => {
+        throw new Error('no git');
+      });
+      run = reduce(run, { type: 'WORKSPACE_OBSERVED', hash: obs.hash });
+      const rev = run.revision;
+      run = reduce(run, { type: 'WORKSPACE_OBSERVED', hash: obs.hash });
+      assert.equal(run.revision, rev);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 
   await inv('check 在 revision 4，当前 revision 5 → /finish 必须失败', () => {

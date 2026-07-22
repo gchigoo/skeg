@@ -5,7 +5,12 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { detectCommandsFromScripts } from './checkspec.ts';
-import { CONFIG_FILE, PROJECT_FILE, SKEG_DIR } from './types.ts';
+import {
+  CONFIG_FILE,
+  PROJECT_FILE,
+  SKEG_DIR,
+  type CheckMatcher,
+} from './types.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES = join(HERE, '..', 'templates');
@@ -71,7 +76,7 @@ export function initSkeg(cwd: string, force = false): InitResult {
 function mergeDetectedCommands(
   cwd: string,
   allowWrite: boolean,
-): Record<string, string> | null {
+): Record<string, CheckMatcher> | null {
   if (!allowWrite) return null;
   const pkgPath = join(cwd, 'package.json');
   if (!existsSync(pkgPath)) return null;
@@ -84,7 +89,7 @@ function mergeDetectedCommands(
     const configPath = join(cwd, SKEG_DIR, CONFIG_FILE);
     if (!existsSync(configPath)) return detected;
     const raw = JSON.parse(readFileSync(configPath, 'utf8')) as {
-      checks?: { commands?: Record<string, string> };
+      checks?: { commands?: Record<string, unknown> };
     };
     raw.checks = raw.checks ?? {};
     raw.checks.commands = { ...detected, ...(raw.checks.commands ?? {}) };

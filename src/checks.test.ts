@@ -119,6 +119,7 @@ describe('classifyCheckCommand', () => {
       lint: 'eslint .',
       build: 'vite build',
     });
+    assert.deepEqual(detected.test, { kind: 'package-script', script: 'test' });
     const config: SkegConfig = {
       ...DEFAULT_CONFIG,
       checks: { ...DEFAULT_CONFIG.checks, commands: detected },
@@ -137,6 +138,32 @@ describe('classifyCheckCommand', () => {
     assert.deepEqual(classifyCheckCommand('pnpm run typecheck', config), {
       kind: 'command',
       name: 'typecheck',
+    });
+  });
+
+  it('supports argv and regex CheckMatchers', () => {
+    const config: SkegConfig = {
+      ...DEFAULT_CONFIG,
+      checks: {
+        ...DEFAULT_CONFIG.checks,
+        commands: {
+          'cargo-test': { kind: 'argv', executable: 'cargo', args: ['test'] },
+          'make-smoke': { kind: 'regex', pattern: '/^make\\s+smoke(?:\\s|$)/i' },
+        },
+      },
+    };
+    assert.deepEqual(classifyCheckCommand('cargo test', config), {
+      kind: 'command',
+      name: 'cargo-test',
+    });
+    assert.deepEqual(classifyCheckCommand('cargo test --lib', config), {
+      kind: 'command',
+      name: 'cargo-test',
+    });
+    assert.equal(classifyCheckCommand('cargo fmt', config), null);
+    assert.deepEqual(classifyCheckCommand('make smoke', config), {
+      kind: 'command',
+      name: 'make-smoke',
     });
   });
 });

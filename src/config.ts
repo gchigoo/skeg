@@ -3,10 +3,12 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isCheckMatcher } from './checkspec.ts';
 import {
   CONFIG_FILE,
   PROJECT_FILE,
   SKEG_DIR,
+  type CheckMatcher,
   type ConfigDiagnostic,
   type ConfigLoadResult,
   type PolicyAction,
@@ -179,12 +181,71 @@ function mergeConfig(
       guarded: Array.isArray(checksRaw.guarded)
         ? (checksRaw.guarded as string[])
         : DEFAULT_CONFIG.checks.guarded,
-      commands:
-        (checksRaw.commands as Record<string, string> | undefined) ??
-        (raw.commands as Record<string, string> | undefined) ??
-        DEFAULT_CONFIG.checks.commands,
+      commands: parseCommands(
+        checksRaw.commands ?? raw.commands,
+        diagnostics,
+      ),
     },
+    providers: parseProviders(raw.providers, diagnostics),
   };
+}
+
+/**
+ * 解析 checks.commands（字符串或 CheckMatcher）。
+ * @param raw 原始值
+ * @param diagnostics 诊断
+ * @returns commands 或 undefined
+ */
+function parseCommands(
+  raw: unknown,
+  diagnostics: ConfigDiagnostic[],
+): Record<string, string | CheckMatcher> | undefined {
+  if (raw === undefined) return DEFAULT_CONFIG.checks.commands;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    diagnostics.push({
+      level: 'warning',
+      path: 'checks.commands',
+      message: 'Expected object; ignoring',
+    });
+    return DEFAULT_CONFIG.checks.commands;
+  }
+  const out: Record<string, string | CheckMatcher> = {};
+  for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === 'string') {
+      out[name] = value;
+    } else if (isCheckMatcher(value)) {
+      out[name] = value;
+    } else {
+      diagnostics.push({
+        level: 'warning',
+        path: `checks.commands.${name}`,
+        message: 'Expected string or CheckMatcher; skipping',
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * 解析 providers 路径列表。
+ * @param raw 原始值
+ * @param diagnostics 诊断
+ * @returns providers 或 undefined
+ */
+function parseProviders(
+  raw: unknown,
+  diagnostics: ConfigDiagnostic[],
+): string[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw) || !raw.every((x) => typeof x === 'string')) {
+    diagnostics.push({
+      level: 'warning',
+      path: 'providers',
+      message: 'Expected string[]; ignoring',
+    });
+    return undefined;
+  }
+  return raw as string[];
 }
 
 /**
