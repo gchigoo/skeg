@@ -15,6 +15,7 @@ import {
   loadConfigWithDiagnostics,
 } from '../src/config.ts';
 import { classifyBashEffect, isMutatingEffect } from '../src/effects.ts';
+import { inspectExitIntegrity } from '../src/exitintegrity.ts';
 import { buildInjectContext } from '../src/inject.ts';
 import { PendingMutationTable } from '../src/pending.ts';
 import { authorizeMutationPaths } from '../src/paths.ts';
@@ -24,6 +25,7 @@ import {
   loadProviders,
   mergePolicyHits,
   type LoadedProviders,
+  type ProviderRuntimeError,
 } from '../src/providers.ts';
 import { healChangedFilesFromGit, runProveChecks } from '../src/prove.ts';
 import { reduce, sameState, type SkegEvent } from '../src/reducer.ts';
@@ -36,6 +38,7 @@ import {
   scanToolCall,
 } from '../src/risk.ts';
 import { isOpenRun, latestRunFromEntries } from '../src/run.ts';
+import { providersConfigHash } from '../src/trust.ts';
 import { RUN_ENTRY_TYPE, type RunState, type SkegConfig } from '../src/types.ts';
 
 /**
@@ -50,11 +53,35 @@ export default function (pi: ExtensionAPI) {
   const pendingMutations = new PendingMutationTable();
   /** 本 session 已提示过的扁平弃用命令 */
   const deprecatedWarned = new Set<string>();
+  /** 本 session 运行时失败后禁用的 provider spec */
+  const disabledProviderSpecs = new Set<string>();
+  /** 已对用户提示过的 provider 错误（每 spec 一次） */
+  const providerErrorWarned = new Set<string>();
+  /** 本 session 是否已提示过 providers 配置变更需 reload */
+  let providersReloadHinted = false;
   let queue: Promise<void> = Promise.resolve();
 
   const reloadProviders = async (cwd: string, next: SkegConfig) => {
     providers = await loadProviders(cwd, next);
-    return providers.diagnostics;
+    disabledProviderSpecs.clear();
+    providerErrorWarned.clear();
+    providersReloadHinted = false;
+    return providers;
+  };
+
+  const noteProviderErrors = (
+    ui: { notify: (m: string, l: 'info' | 'warning' | 'error') => void },
+    errors: ProviderRuntimeError[],
+  ) => {
+    for (const err of errors) {
+      disabledProviderSpecs.add(err.spec);
+      if (providerErrorWarned.has(err.spec)) continue;
+      providerErrorWarned.add(err.spec);
+      ui.notify(
+        `Skeg provider ${err.spec} (${err.kind}) failed and was disabled for this session: ${err.message}`,
+        'warning',
+      );
+    }
   };
 
   const dispatch = (event: SkegEvent): Promise<void> => {
@@ -85,24 +112,47 @@ export default function (pi: ExtensionAPI) {
       deprecatedWarned.clear();
     },
     getEntries: () => [] as Array<{ type?: string; customType?: string; data?: unknown }>,
+    getProviders: () => providers,
+    reloadProviders: async () => {
+      // cwd 由调用方在 handleCommand 前已写入 config；这里用 process.cwd 会被覆盖
+      return providers;
+    },
   };
 
   pi.on('session_start', async (_event, ctx) => {
     const loaded = loadConfigWithDiagnostics(ctx.cwd);
     config = loaded.config;
-    const providerDiags = await reloadProviders(ctx.cwd, config);
-    notifyDiagnostics(ctx.ui, [...loaded.diagnostics, ...providerDiags]);
+    const next = await reloadProviders(ctx.cwd, config);
+    notifyDiagnostics(ctx.ui, [...loaded.diagnostics, ...next.diagnostics]);
     run = latestRunFromEntries(ctx.sessionManager.getEntries());
     commandDeps.getEntries = () => ctx.sessionManager.getEntries();
+    commandDeps.reloadProviders = async () => {
+      const cfg = loadConfigWithDiagnostics(ctx.cwd);
+      config = cfg.config;
+      return reloadProviders(ctx.cwd, config);
+    };
   });
 
   pi.on('before_agent_start', async (event, ctx) => {
     const loaded = loadConfigWithDiagnostics(ctx.cwd);
     config = loaded.config;
-    const providerDiags = await reloadProviders(ctx.cwd, config);
-    notifyDiagnostics(ctx.ui, [...loaded.diagnostics, ...providerDiags]);
+    // session 级冻结：配置变化只提示 reload，不自动 import
+    const nextHash = providersConfigHash(config.providers);
+    if (nextHash !== providers.configHash && !providersReloadHinted) {
+      providersReloadHinted = true;
+      ctx.ui.notify(
+        'Skeg: providers config changed; run /skeg providers reload to apply.',
+        'warning',
+      );
+    }
+    notifyDiagnostics(ctx.ui, loaded.diagnostics);
     if (!run) run = latestRunFromEntries(ctx.sessionManager.getEntries());
     commandDeps.getEntries = () => ctx.sessionManager.getEntries();
+    commandDeps.reloadProviders = async () => {
+      const cfg = loadConfigWithDiagnostics(ctx.cwd);
+      config = cfg.config;
+      return reloadProviders(ctx.cwd, config);
+    };
 
     const prompt = event.prompt ?? '';
     if (!isOpenRun(run) && prompt.includes('<!-- skeg:run -->')) {
@@ -125,6 +175,8 @@ export default function (pi: ExtensionAPI) {
 
     const content = buildInjectContext(run, config, ctx.cwd, {
       recordSelectors: providers.records,
+      disabledProviderSpecs,
+      onProviderErrors: (errors) => noteProviderErrors(ctx.ui, errors),
     });
     const base = event.systemPrompt ?? '';
     return { systemPrompt: base ? `${base}\n\n${content}` : content };
@@ -192,8 +244,10 @@ export default function (pi: ExtensionAPI) {
       { toolName: event.toolName, input, paths },
       config,
       providers.policies,
+      disabledProviderSpecs,
     );
-    const gatedHits = merged.filter((h) => requiresGate(h.trigger, config));
+    noteProviderErrors(ctx.ui, merged.errors);
+    const gatedHits = merged.hits.filter((h) => requiresGate(h.trigger, config));
     if (gatedHits.length === 0) return undefined;
 
     const blocked = gatedHits.find((h) => requiresBlock(h.trigger, config));
@@ -289,31 +343,40 @@ export default function (pi: ExtensionAPI) {
         config,
         classifyCheckCommand(command, config),
         providers.checks,
+        disabledProviderSpecs,
       );
-      if (classified) {
-        const output =
-          typeof event.content === 'string'
-            ? event.content
-            : Array.isArray(event.content)
+      noteProviderErrors(ctx.ui, classified.errors);
+      if (classified.check) {
+        if (inspectExitIntegrity(command) === 'masked') {
+          ctx.ui.notify(
+            `Skeg did not count this as ${classified.check.name} evidence: the exit status may be masked by shell operators. Run the check as a standalone command.`,
+            'warning',
+          );
+        } else {
+          const output =
+            typeof event.content === 'string'
               ? event.content
-                  .map((c) =>
-                    typeof c === 'string'
-                      ? c
-                      : typeof c === 'object' && c && 'text' in c
-                        ? String((c as { text?: unknown }).text ?? '')
-                        : '',
-                  )
-                  .join('\n')
-              : '';
-        await dispatch({
-          type: 'CHECK_RECORDED',
-          check: buildCommandCheck(
-            classified.name,
-            command,
-            !event.isError,
-            output,
-          ),
-        });
+              : Array.isArray(event.content)
+                ? event.content
+                    .map((c) =>
+                      typeof c === 'string'
+                        ? c
+                        : typeof c === 'object' && c && 'text' in c
+                          ? String((c as { text?: unknown }).text ?? '')
+                          : '',
+                    )
+                    .join('\n')
+                : '';
+          await dispatch({
+            type: 'CHECK_RECORDED',
+            check: buildCommandCheck(
+              classified.check.name,
+              command,
+              !event.isError,
+              output,
+            ),
+          });
+        }
       }
     }
     return undefined;
@@ -415,15 +478,26 @@ export default function (pi: ExtensionAPI) {
           );
         }
         commandDeps.getEntries = () => ctx.sessionManager.getEntries();
+        commandDeps.reloadProviders = async () => {
+          const cfg = loadConfigWithDiagnostics(ctx.cwd);
+          config = cfg.config;
+          return reloadProviders(ctx.cwd, config);
+        };
         await handleCommand(name, args || '', ctx, commandDeps);
       },
     });
   }
 
   pi.registerCommand('skeg', {
-    description: 'Skeg: init|start|status|finish|record',
+    description:
+      'Skeg: init|start|status|finish|record|providers|trust|untrust',
     handler: async (args, ctx) => {
       commandDeps.getEntries = () => ctx.sessionManager.getEntries();
+      commandDeps.reloadProviders = async () => {
+        const cfg = loadConfigWithDiagnostics(ctx.cwd);
+        config = cfg.config;
+        return reloadProviders(ctx.cwd, config);
+      };
       const text = (args || '').trim();
       const match = text.match(/^(\S+)\s*([\s\S]*)$/);
       await handleCommand(match?.[1] ?? '', match?.[2] ?? '', ctx, commandDeps);

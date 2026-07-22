@@ -8,6 +8,10 @@ dist/
 
 # local planning / background
 archive/
+plan.md
+review.md
+reviewV2.md
+roadmap.md
 
 # design notes — local only, not published / not tracked
 DESIGN.md

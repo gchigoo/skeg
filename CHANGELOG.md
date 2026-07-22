@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.1 — 2026-07-22
+
+Trusted Evidence.
+
+### Added
+- Provider workspace trust（`src/trust.ts`）：`~/.skeg/trust.json`，绑定内容哈希；`/skeg trust|untrust|providers|providers reload`
+- Shell 退出码完整性（`src/exitintegrity.ts`）：掩盖退出状态的命令不记为 check 证据
+- SECURITY.md Provider threat model
+
+### Changed
+- `providers[]` 仅允许 `.skeg/providers/**` 相对路径或裸包名；未信任不 `import()`
+- 裸包名从项目 cwd 解析（`createRequire`）
+- session 冻结 Provider 集合；配置变更需显式 reload
+- Policy/Check/Record Provider 运行时错误可见，并在本 session 禁用该 Provider
+- RecordSelector 返回空数组时不再吞掉 fallback
+
+### Fixed
+- runtime invariant：第三方 CheckProvider 使用非内置命令 + 真实动态加载链路
+
 ## 0.6.0 — 2026-07-22
 
 Extension Contract.

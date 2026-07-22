@@ -378,41 +378,158 @@ async function main() {
   });
 
   await inv('第三方 CheckProvider 分类的 check 进入 closure 证据链', async () => {
-    const { classifyWithProviders } = await import(
-      pathToFileURL(join(root, 'src/providers.ts')).href
-    );
-    const classified = classifyWithProviders(
-      'cargo test',
-      DEFAULT_CONFIG,
-      classifyCheckCommand('cargo test', DEFAULT_CONFIG),
-      [
-        {
-          classify: (command) =>
-            command.includes('cargo test')
-              ? { kind: 'command', name: 'test' }
-              : null,
-        },
-      ],
-    );
-    assert.deepEqual(classified, { kind: 'command', name: 'test' });
+    const userDir = mkdtempSync(join(tmpdir(), 'skeg-rt-user-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'skeg-rt-prov-'));
+    const prevUserDir = process.env.SKEG_USER_DIR;
+    process.env.SKEG_USER_DIR = userDir;
+    try {
+      mkdirSync(join(cwd, '.skeg', 'providers'), { recursive: true });
+      const counterPath = join(cwd, 'provider-calls.txt');
+      const providerPath = join(cwd, '.skeg', 'providers', 'special.mjs');
+      writeFileSync(
+        providerPath,
+        `import { readFileSync, writeFileSync } from 'node:fs';
+const COUNTER = ${JSON.stringify(counterPath)};
+export default {
+  checks: {
+    classify(command) {
+      let n = 0;
+      try { n = Number(readFileSync(COUNTER, 'utf8')); } catch {}
+      writeFileSync(COUNTER, String(n + 1));
+      return command === 'just skeg-special-verify'
+        ? { kind: 'command', name: 'special-verify' }
+        : null;
+    }
+  }
+};
+`,
+        'utf8',
+      );
+      const spec = '.skeg/providers/special.mjs';
+      const { trustProvider } = await import(
+        pathToFileURL(join(root, 'src/trust.ts')).href
+      );
+      const { loadProviders, classifyWithProviders } = await import(
+        pathToFileURL(join(root, 'src/providers.ts')).href
+      );
+      assert.equal(trustProvider(cwd, spec).ok, true);
+      const loaded = await loadProviders(cwd, {
+        ...DEFAULT_CONFIG,
+        providers: [spec],
+      });
+      assert.equal(loaded.checks.length, 1);
 
-    let run = createRun('provider check');
-    run = upsertCheck(run, {
-      kind: 'command',
-      name: classified.name,
-      passed: true,
-      command: 'cargo test',
-    });
-    run = upsertCheck(run, { kind: 'diff', name: 'diff', passed: true });
-    // lean default 需要 targeted-test；用 waive 模拟 provider check 满足 guarded 的 test
-    const guardedConfig = {
-      ...DEFAULT_CONFIG,
-      checks: {
-        ...DEFAULT_CONFIG.checks,
-        default: ['test', 'diff'],
-      },
-    };
-    assert.equal(evaluateClosure(run, guardedConfig).ok, true);
+      const builtin = classifyCheckCommand(
+        'just skeg-special-verify',
+        DEFAULT_CONFIG,
+      );
+      assert.equal(builtin, null);
+
+      const classified = classifyWithProviders(
+        'just skeg-special-verify',
+        DEFAULT_CONFIG,
+        builtin,
+        loaded.checks,
+      );
+      assert.deepEqual(classified.check, {
+        kind: 'command',
+        name: 'special-verify',
+      });
+      assert.equal(Number(readFileSync(counterPath, 'utf8')), 1);
+
+      let run = createRun('provider check');
+      run = upsertCheck(run, {
+        kind: 'command',
+        name: classified.check.name,
+        passed: true,
+        command: 'just skeg-special-verify',
+      });
+      run = upsertCheck(run, { kind: 'diff', name: 'diff', passed: true });
+      const providerConfig = {
+        ...DEFAULT_CONFIG,
+        checks: {
+          ...DEFAULT_CONFIG.checks,
+          default: ['special-verify', 'diff'],
+        },
+      };
+      assert.equal(evaluateClosure(run, providerConfig).ok, true);
+    } finally {
+      if (prevUserDir === undefined) delete process.env.SKEG_USER_DIR;
+      else process.env.SKEG_USER_DIR = prevUserDir;
+      rmSync(userDir, { recursive: true, force: true });
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  await inv('未信任项目 Provider 顶层代码不得执行', async () => {
+    const userDir = mkdtempSync(join(tmpdir(), 'skeg-rt-user-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'skeg-rt-untrust-'));
+    const prevUserDir = process.env.SKEG_USER_DIR;
+    process.env.SKEG_USER_DIR = userDir;
+    try {
+      mkdirSync(join(cwd, '.skeg', 'providers'), { recursive: true });
+      const marker = join(cwd, 'executed.txt');
+      writeFileSync(
+        join(cwd, '.skeg', 'providers', 'evil.mjs'),
+        `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, 'ran');
+export default { checks: { classify() { return null; } } };
+`,
+        'utf8',
+      );
+      const { loadProviders } = await import(
+        pathToFileURL(join(root, 'src/providers.ts')).href
+      );
+      const loaded = await loadProviders(cwd, {
+        ...DEFAULT_CONFIG,
+        providers: ['.skeg/providers/evil.mjs'],
+      });
+      assert.equal(loaded.checks.length, 0);
+      assert.equal(
+        (() => {
+          try {
+            readFileSync(marker, 'utf8');
+            return true;
+          } catch {
+            return false;
+          }
+        })(),
+        false,
+      );
+    } finally {
+      if (prevUserDir === undefined) delete process.env.SKEG_USER_DIR;
+      else process.env.SKEG_USER_DIR = prevUserDir;
+      rmSync(userDir, { recursive: true, force: true });
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  await inv('pnpm test || true 与 ; echo ok 不得记为有效 check 证据', async () => {
+    const { inspectExitIntegrity } = await import(
+      pathToFileURL(join(root, 'src/exitintegrity.ts')).href
+    );
+    assert.equal(inspectExitIntegrity('pnpm test || true'), 'masked');
+    assert.equal(inspectExitIntegrity('pnpm test; echo ok'), 'masked');
+    assert.equal(inspectExitIntegrity('pnpm test'), 'preserved');
+
+    // 模拟 tool_result：masked（或未被分类）均不得产生 passed test 证据
+    for (const command of ['pnpm test || true', 'pnpm test; echo ok']) {
+      const classified = classifyCheckCommand(command, DEFAULT_CONFIG);
+      const integrity = inspectExitIntegrity(command);
+      assert.equal(integrity, 'masked');
+      // core.ts：仅当 classified && preserved 才 CHECK_RECORDED
+      const wouldRecord = Boolean(classified) && integrity === 'preserved';
+      assert.equal(wouldRecord, false);
+
+      let run = createRun('masked check');
+      run = upsertCheck(run, { kind: 'diff', name: 'diff', passed: true });
+      const cfg = {
+        ...DEFAULT_CONFIG,
+        checks: { ...DEFAULT_CONFIG.checks, default: ['test', 'diff'] },
+      };
+      assert.equal(evaluateClosure(run, cfg).ok, false);
+      assert.ok(evaluateClosure(run, cfg).missing.includes('test'));
+    }
   });
 
   // 结构化 metrics：任一失败用例标记对应维度

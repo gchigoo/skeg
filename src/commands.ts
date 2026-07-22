@@ -8,6 +8,10 @@ import {
 } from './closure.ts';
 import { loadConfigWithDiagnostics } from './config.ts';
 import { initSkeg } from './init.ts';
+import {
+  formatProvidersStatus,
+  type LoadedProviders,
+} from './providers.ts';
 import { createRecord, parseRecordArgs } from './record.ts';
 import { runProveChecks } from './prove.ts';
 import { sameState, type SkegEvent } from './reducer.ts';
@@ -19,6 +23,7 @@ import {
   latestRunFromEntries,
   parseWaiveReason,
 } from './run.ts';
+import { trustProvider, untrustProvider } from './trust.ts';
 import { RUN_ENTRY_TYPE, type RunState, type SkegConfig } from './types.ts';
 
 export type CommandUi = {
@@ -43,6 +48,8 @@ export type CommandDeps = {
     customType?: string;
     data?: unknown;
   }>;
+  getProviders: () => LoadedProviders;
+  reloadProviders: () => Promise<LoadedProviders>;
 };
 
 /**
@@ -215,9 +222,65 @@ export async function handleCommand(
       );
       return;
     }
+    case 'providers': {
+      const sub = (args || '').trim();
+      if (sub === 'reload') {
+        const loaded = reload();
+        notifyDiagnostics(ctx.ui, loaded.diagnostics);
+        const providers = await deps.reloadProviders();
+        notifyDiagnostics(ctx.ui, providers.diagnostics);
+        ctx.ui.notify(
+          `Reloaded providers (${providers.policies.length} policy, ${providers.checks.length} check, ${providers.records.length} record).`,
+          'info',
+        );
+        return;
+      }
+      if (sub) {
+        ctx.ui.notify(
+          'Usage: /skeg providers | /skeg providers reload',
+          'error',
+        );
+        return;
+      }
+      const loaded = reload();
+      notifyDiagnostics(ctx.ui, loaded.diagnostics);
+      ctx.ui.notify(
+        formatProvidersStatus(ctx.cwd, deps.getConfig(), deps.getProviders()),
+        'info',
+      );
+      return;
+    }
+    case 'trust': {
+      const spec = (args || '').trim();
+      if (!spec) {
+        ctx.ui.notify('Usage: /skeg trust <provider-spec>', 'error');
+        return;
+      }
+      const result = trustProvider(ctx.cwd, spec);
+      ctx.ui.notify(result.message, result.ok ? 'info' : 'error');
+      if (result.ok) {
+        const providers = await deps.reloadProviders();
+        notifyDiagnostics(ctx.ui, providers.diagnostics);
+      }
+      return;
+    }
+    case 'untrust': {
+      const spec = (args || '').trim();
+      if (!spec) {
+        ctx.ui.notify('Usage: /skeg untrust <provider-spec>', 'error');
+        return;
+      }
+      const result = untrustProvider(ctx.cwd, spec);
+      ctx.ui.notify(result.message, result.ok ? 'info' : 'error');
+      if (result.ok) {
+        const providers = await deps.reloadProviders();
+        notifyDiagnostics(ctx.ui, providers.diagnostics);
+      }
+      return;
+    }
     default:
       ctx.ui.notify(
-        `Unknown skeg command: ${name}. Try init|start|status|finish|record`,
+        `Unknown skeg command: ${name}. Try init|start|status|finish|record|providers|trust|untrust`,
         'error',
       );
   }

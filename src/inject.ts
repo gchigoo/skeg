@@ -5,14 +5,23 @@
 /** 注入硬预算（tokens）；v0.5 与 record 相关性加载同版收至 300 */
 export const INJECT_TOKEN_BUDGET = 300;
 import { loadProjectSummary } from './config.ts';
-import { selectRecordsWithProviders, type RecordSelector } from './providers.ts';
+import {
+  selectRecordsWithProviders,
+  type NamedProvider,
+  type ProviderRuntimeError,
+  type RecordSelector,
+} from './providers.ts';
 import { selectRelevantRecords } from './record.ts';
 import { currentChecks, hasFreshPass } from './run.ts';
 import type { Phase, RunState, SkegConfig } from './types.ts';
 
 export type InjectOptions = {
   /** 第三方 RecordSelector；存在时优先于内置相关性选择 */
-  recordSelectors?: RecordSelector[];
+  recordSelectors?: NamedProvider<RecordSelector>[];
+  /** 本 session 已禁用的 provider spec */
+  disabledProviderSpecs?: ReadonlySet<string>;
+  /** RecordSelector 运行时错误回调 */
+  onProviderErrors?: (errors: ProviderRuntimeError[]) => void;
 };
 
 /** standard guidance 注入的 records 索引条数上限。 */
@@ -120,7 +129,7 @@ export function buildInjectContext(
       lines.push('Project:');
       lines.push(summary);
     }
-    const records = selectRecordsWithProviders(
+    const selected = selectRecordsWithProviders(
       { cwd, intent: run.intent, changedFiles: run.changedFiles },
       options.recordSelectors ?? [],
       () =>
@@ -130,7 +139,12 @@ export function buildInjectContext(
           run.changedFiles,
           RECORDS_INDEX_LIMIT,
         ),
-    ).slice(0, RECORDS_INDEX_LIMIT);
+      options.disabledProviderSpecs,
+    );
+    if (selected.errors.length > 0) {
+      options.onProviderErrors?.(selected.errors);
+    }
+    const records = selected.records.slice(0, RECORDS_INDEX_LIMIT);
     if (records.length > 0) {
       lines.push('Records (relevant):');
       for (const rec of records) {

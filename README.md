@@ -48,7 +48,7 @@ Prompt template:
 
 ## Status
 
-**v0.6.0** — Extension Contract：`PolicyProvider` / `CheckProvider` / `RecordSelector`、结构化 `CheckMatcher`、扁平命令弃用提示；在 v0.5.1 假绿封口之上对外开放扩展点。
+**v0.6.1** — Trusted Evidence：Provider workspace trust、Shell 退出码完整性、未信任 Provider 不执行；在 v0.6.0 Extension Contract 之上封口扩展信任边界。
 
 ```bash
 npm run verify
@@ -75,13 +75,16 @@ npm run dogfood:host -- --cwd . --profile skeg
       "unit-smoke": { "kind": "regex", "pattern": "/^make\\s+smoke(?:\\s|$)/i" }
     }
   },
-  "providers": ["./skeg-providers/my-policy.mjs"]
+  "providers": [".skeg/providers/my-policy.mjs"]
 }
 ```
 
 - 成功修改工作区 → `revision+1`，旧 checks 变 stale；`/finish` 只接受当前 revision 证据
 - `/skeg finish --waive "reason"` 显式承担风险
 - `cat migrations/*.sql` 为 read，不记变更、不弹 gate
+- Providers 仅可位于 `.skeg/providers/**`（或裸包名）；须 `/skeg trust <spec>` 后才加载；内容变更后信任失效
+- `/skeg providers` / `trust` / `untrust` / `providers reload` 管理扩展信任
+- `pnpm test || true` 等掩盖退出码的命令不记为 check 证据
 - Providers 可追加 Policy / Check / Record；不能增加新的核心阶段状态机（见 `NON_GOALS.md`）
 
 ## Develop
