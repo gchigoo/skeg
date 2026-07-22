@@ -2,6 +2,7 @@
  * Skeg Pi 适配层：事件钩子 + 命令注册。
  * 机制逻辑在 src/，本文件只做宿主桥接。
  */
+import { createHash } from 'node:crypto';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import {
   captureBaseline,
@@ -47,6 +48,9 @@ import { toolResultText } from '../src/tooloutput.ts';
 import { providersConfigHash } from '../src/trust.ts';
 import { RUN_ENTRY_TYPE, type RunState, type SkegConfig } from '../src/types.ts';
 
+/** 注入审计 entry（不进 LLM；供 smoke/host 观测 systemPrompt 注入）。 */
+const CONTEXT_ENTRY_TYPE = 'skeg/context';
+
 /**
  * Pi package 入口。
  * @param pi ExtensionAPI
@@ -61,6 +65,8 @@ export default function (pi: ExtensionAPI) {
   const providerErrorWarned = new Set<string>();
   /** 本 session 是否已提示过 providers 配置变更需 reload */
   let providersReloadHinted = false;
+  /** 已落盘的注入内容 hash；变化时写 skeg/context 审计 entry */
+  let lastInjectHash = '';
   let queue: Promise<void> = Promise.resolve();
 
   /**
@@ -139,6 +145,7 @@ export default function (pi: ExtensionAPI) {
   };
 
   pi.on('session_start', async (_event, ctx) => {
+    lastInjectHash = '';
     const loaded = loadConfigWithDiagnostics(ctx.cwd);
     config = loaded.config;
     const next = await reloadProviders(ctx.cwd, config);
@@ -196,6 +203,12 @@ export default function (pi: ExtensionAPI) {
       disabledProviderSpecs,
       onProviderErrors: (errors) => noteProviderErrors(ctx.ui, errors),
     });
+    // RPC 不暴露 systemPrompt；内容 hash 变化时落审计 entry（不进 LLM）
+    const injectHash = createHash('sha256').update(content).digest('hex');
+    if (injectHash !== lastInjectHash) {
+      lastInjectHash = injectHash;
+      pi.appendEntry(CONTEXT_ENTRY_TYPE, { content });
+    }
     const base = event.systemPrompt ?? '';
     return { systemPrompt: base ? `${base}\n\n${content}` : content };
   });

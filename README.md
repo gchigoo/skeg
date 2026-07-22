@@ -48,17 +48,19 @@ Prompt template:
 
 ## Status
 
-**v0.8.0** — Compat Split + CI 硬化：扁平命令拆到 `extensions/compat.ts`；CI 跑 provider conformance / dogfood / dist-e2e。
+**v0.9.0** — Real-host Green：实机 smoke（源码 + `--dist`）对齐 closure / 注入审计，作为发布前宿主 gate。
 
 ```bash
 npm run verify
 npm run verify:dist   # verify + pack dry-run + dogfood/dist-e2e
-npm run smoke
-npm run smoke -- --dist   # 手动：Pi 从沙箱 node_modules 装载 tarball（需模型 API）
+npm run smoke         # 实机：lean 真关闭 + false-green 拒绝 + risk waive（需模型 API）
+npm run smoke -- --dist
 npm run dogfood:adversarial
 npm run dogfood:runtime
 npm run dogfood:host -- --cwd . --profile skeg
 ```
+
+Smoke 剧本：lean1 编辑后跑 `npm test -- <path>` 再 `/finish`；lean2 无证据须被拒绝并用 `--abandon` 清场；risk gate 后 `/finish --waive`。注入经 `skeg/context` 审计 entry 可观测。
 
 扁平命令 `/init` `/run` `/status` `/finish` `/record` 由 `extensions/compat.ts` 提供（默认启用，仍提示改用 `/skeg …`）。可从 `package.json` → `pi.extensions` 移除该条目以禁用。v1.0 将从默认列表移除 compat。
 

@@ -105,13 +105,28 @@ function ensureSandbox(root) {
   }
   mkdirSync(join(root, 'src', 'auth'), { recursive: true });
   mkdirSync(join(root, 'migrations'), { recursive: true });
-  if (!existsSync(join(root, 'package.json'))) {
-    writeFileSync(
-      join(root, 'package.json'),
-      JSON.stringify({ name: 'skeg-smoke', version: '0.0.0', private: true }),
-    );
-  }
   // 每次 smoke 重置 fixture，避免上次 run 改坏后 ensure 跳过写入
+  writeFileSync(
+    join(root, 'package.json'),
+    JSON.stringify(
+      {
+        name: 'skeg-smoke',
+        version: '0.0.0',
+        private: true,
+        scripts: {
+          // 恒成功；agent 用 `npm test -- <path>` 产出 targeted-test 证据
+          test: 'node -e "console.log(\'ok\'); process.exit(0)"',
+        },
+      },
+      null,
+      2,
+    ),
+  );
+  // --dist 沙箱含 node_modules；必须忽略，否则 git 无可用 HEAD → diff 证据失败
+  writeFileSync(
+    join(root, '.gitignore'),
+    ['node_modules/', '*.tgz', '.pi/sessions/', ''].join('\n'),
+  );
   writeFileSync(
     join(root, 'src/auth/redirect.ts'),
     'export function buildRedirect(path: string, query: string) {\n  return path;\n}\n',
@@ -149,15 +164,12 @@ function ensureSandbox(root) {
     JSON.stringify({ packages: [SKEG_ROOT] }, null, 2),
   );
 
-  // 初始化/重置 git，便于 agent_end heal；fixture 重写后必须再 commit，避免脏树串味
-  try {
-    if (!existsSync(join(root, '.git'))) {
-      execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
-    }
-    commitSandbox(root, 'smoke fixture reset');
-  } catch {
-    /* git optional for basic UX checks */
+  // 初始化/重置 git，便于 prove/diff；fixture 重写后必须再 commit
+  if (!existsSync(join(root, '.git'))) {
+    execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
   }
+  commitSandbox(root, 'smoke fixture reset');
+  execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, stdio: 'ignore' });
 }
 
 /**
@@ -166,25 +178,21 @@ function ensureSandbox(root) {
  * @param {string} message
  */
 function commitSandbox(root, message) {
-  try {
-    execFileSync('git', ['add', '-A'], { cwd: root, stdio: 'ignore' });
-    execFileSync(
-      'git',
-      [
-        '-c',
-        'user.email=skeg@smoke.local',
-        '-c',
-        'user.name=skeg-smoke',
-        'commit',
-        '-m',
-        message,
-        '--allow-empty',
-      ],
-      { cwd: root, stdio: 'ignore' },
-    );
-  } catch {
-    /* ignore */
-  }
+  execFileSync('git', ['add', '-A'], { cwd: root, stdio: 'ignore' });
+  execFileSync(
+    'git',
+    [
+      '-c',
+      'user.email=skeg@smoke.local',
+      '-c',
+      'user.name=skeg-smoke',
+      'commit',
+      '-m',
+      message,
+      '--allow-empty',
+    ],
+    { cwd: root, stdio: 'ignore' },
+  );
 }
 
 class PiRpc {
@@ -364,6 +372,26 @@ class PiRpc {
   }
 
   /**
+   * 等待 notify 流静默（slash 命令常先回 response，notify 略晚）。
+   * @param {number} [quietMs]
+   * @param {number} [maxMs]
+   */
+  async waitNotifyQuiet(quietMs = 400, maxMs = 5000) {
+    const start = Date.now();
+    let lastCount = this.notifies.length;
+    let lastChange = Date.now();
+    while (Date.now() - start < maxMs) {
+      if (this.notifies.length !== lastCount) {
+        lastCount = this.notifies.length;
+        lastChange = Date.now();
+      } else if (Date.now() - lastChange >= quietMs) {
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+
+  /**
    * @param {string} message
    * @param {number} [timeout]
    */
@@ -379,15 +407,18 @@ class PiRpc {
       const resp = slice.find(
         (e) => e.type === 'response' && e.command === 'prompt',
       );
-      if (settled || ended) return slice;
+      if (settled || ended) {
+        await this.waitNotifyQuiet(300);
+        return this.events.slice(before);
+      }
       if (
         resp &&
         resp.success &&
         !slice.some((e) => e.type === 'agent_start') &&
         Date.now() - start > 400
       ) {
-        // slash command finished without agent turn
-        await new Promise((r) => setTimeout(r, 200));
+        // slash 命令：等 notify 静默，避免正文落到下一轮断言
+        await this.waitNotifyQuiet(400);
         return this.events.slice(before);
       }
       await new Promise((r) => setTimeout(r, 100));
@@ -425,7 +456,7 @@ class PiRpc {
   }
 
   /**
-   * before_agent_start 注入以 custom_message / skeg/context 落盘。
+   * 注入审计：core 在 systemPrompt 内容 hash 变化时 appendEntry(skeg/context)。
    * @returns {Promise<string[]>}
    */
   async getSkegContexts() {
@@ -436,7 +467,10 @@ class PiRpc {
           e.customType === 'skeg/context' &&
           (e.type === 'custom_message' || e.type === 'custom'),
       )
-      .map((e) => String(e.content ?? e.data?.content ?? ''));
+      .map((e) => {
+        const data = /** @type {{ content?: unknown } | undefined} */ (e.data);
+        return String(e.content ?? data?.content ?? '');
+      });
   }
 
   async stop() {
@@ -526,16 +560,17 @@ async function main() {
       "     return query ? `${path}?${query}` : path;",
       '   }',
       '2. Do not touch any other files.',
-      '3. Do not run tests. Reply DONE when the file is edited.',
+      '3. Then run exactly this bash command (needed for Skeg evidence):',
+      '   npm test -- src/auth/redirect.ts',
+      '4. Reply DONE after the test command finishes.',
     ].join('\n'),
   );
 
-  // v0.3：agent turn 注入应含 Records 索引（standard guidance）
-  // Pi 以 custom_message/skeg/context 落盘（非 custom entry）
+  // systemPrompt 注入经 skeg/context 审计 entry 可观测（Records (relevant)）
   const allEntries = await pi.getEntries();
   const contexts = await pi.getSkegContexts();
   const withRecords = contexts.find(
-    (c) => /Records\s*\(\.skeg\/records\/\)/.test(c) && /INC-\d+/.test(c),
+    (c) => /Records\s*\(relevant\)/i.test(c) && /INC-\d+/.test(c),
   );
   record(
     'records index injected',
@@ -569,19 +604,23 @@ async function main() {
     !/Phase:\s*orient/i.test(status1) && /Files:\s*(?!(\(none\)))/i.test(status1),
     status1.replace(/\n/g, ' | ').slice(0, 200),
   );
+  record(
+    'lean1 targeted-test evidence',
+    /targeted-test/i.test(status1),
+    status1.replace(/\n/g, ' | ').slice(0, 200),
+  );
 
   pi.notifies = [];
   await pi.prompt('/finish');
   const finish1 = pi.notifies.map((n) => n.message || '').join('\n');
   record(
     'lean1 /finish closes',
-    /done|Closed|Status:\s*done/i.test(finish1) ||
-      /Intent:.*redirect/i.test(finish1),
-    finish1.replace(/\n/g, ' | ').slice(0, 200),
+    /Done:\s*.*redirect/i.test(finish1) && !/Cannot finish/i.test(finish1),
+    finish1.replace(/\n/g, ' | ').slice(0, 240),
   );
   commitSandbox(SANDBOX, 'after lean1');
 
-  // ========== lean 2: typo copy（避免 sensitive-keywords 误升 guarded）==========
+  // ========== lean 2: false-green 拒绝 + abandon 清场 ==========
   pi.notifies = [];
   pi.uiRequests = [];
   await pi.prompt('/run fix typo in settings copy SAVE_LABEL');
@@ -597,8 +636,9 @@ async function main() {
       "   const DEFAULT = 'Save settings';",
       '   Keep the export line unchanged.',
       '2. Do not touch migrations, package.json, or auth files.',
-      '3. Do not use words: token, password, session, permission, role.',
-      '4. Reply DONE when done.',
+      '3. Do not run any tests or npm commands.',
+      '4. Do not use words: token, password, session, permission, role.',
+      '5. Reply DONE when the edit is done.',
     ].join('\n'),
   );
   record(
@@ -627,13 +667,27 @@ async function main() {
     status2.replace(/\n/g, ' | ').slice(0, 200),
   );
 
+  // 无 targeted-test 证据时 /finish 必须拒绝（false-green 防线）
   pi.notifies = [];
   await pi.prompt('/finish');
   const finish2 = pi.notifies.map((n) => n.message || '').join('\n');
-  record('lean2 /finish closes', finish2.length > 0, finish2.slice(0, 120));
+  record(
+    'lean2 /finish rejects missing evidence',
+    /Cannot finish/i.test(finish2) && /targeted-test/i.test(finish2),
+    finish2.replace(/\n/g, ' | ').slice(0, 240),
+  );
+
+  pi.notifies = [];
+  await pi.prompt('/finish --abandon');
+  const abandon2 = pi.notifies.map((n) => n.message || '').join('\n');
+  record(
+    'lean2 /finish --abandon clears',
+    /Abandoned:/i.test(abandon2),
+    abandon2.replace(/\n/g, ' | ').slice(0, 200),
+  );
   commitSandbox(SANDBOX, 'after lean2');
 
-  // ========== risk: migration ==========
+  // ========== risk: migration + waive 关闭 ==========
   pi.notifies = [];
   pi.uiRequests = [];
   pi.autoConfirm = true;
@@ -650,7 +704,7 @@ async function main() {
       '   CREATE UNIQUE INDEX CONCURRENTLY users_email_uidx ON users(email);',
       '2. Use the write tool (not bash redirection).',
       '3. If a Skeg gate confirm appears, that is expected — the host will approve.',
-      '4. Reply DONE after the write succeeds.',
+      '4. Do not run tests. Reply DONE after the write succeeds.',
     ].join('\n'),
   );
 
@@ -684,12 +738,17 @@ async function main() {
   );
 
   pi.notifies = [];
-  await pi.prompt('/finish');
+  await pi.prompt(
+    '/finish --waive "smoke: migration fixture; waive remaining checks"',
+  );
   const finish3 = pi.notifies.map((n) => n.message || '').join('\n');
   record(
-    'risk /finish after gate',
-    !/Cannot finish:\s*pending gate/i.test(finish3) && finish3.length > 0,
-    finish3.replace(/\n/g, ' | ').slice(0, 200),
+    'risk /finish --waive closes',
+    /Done:\s*.*(migration|unique index|users\.email)/i.test(finish3) &&
+      /Waivers:/i.test(finish3) &&
+      !/Cannot finish/i.test(finish3) &&
+      !/Status:\s*active/i.test(finish3),
+    finish3.replace(/\n/g, ' | ').slice(0, 280),
   );
 
   // persistence check
@@ -712,7 +771,8 @@ async function main() {
       .filter((u) => u.method === 'confirm')
       .map((u) => u.title),
   };
-  const out = join(SKEG_ROOT, 'dogfood', 'PI_SMOKE.md');
+  // 报告始终写回仓库 dogfood/（--dist 时 SKEG_ROOT 在 tarball 安装树内无 dogfood/）
+  const out = join(REPO_ROOT, 'dogfood', 'PI_SMOKE.md');
   writeFileSync(
     out,
     [

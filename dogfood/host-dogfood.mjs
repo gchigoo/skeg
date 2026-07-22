@@ -275,6 +275,30 @@ class PiRpc {
    * @param {string} message
    * @param {number} [timeout]
    */
+  /**
+   * 等待 notify 流静默（slash 命令常先回 response，notify 略晚）。
+   * @param {number} [quietMs]
+   * @param {number} [maxMs]
+   */
+  async waitNotifyQuiet(quietMs = 400, maxMs = 5000) {
+    const start = Date.now();
+    let lastCount = this.notifies.length;
+    let lastChange = Date.now();
+    while (Date.now() - start < maxMs) {
+      if (this.notifies.length !== lastCount) {
+        lastCount = this.notifies.length;
+        lastChange = Date.now();
+      } else if (Date.now() - lastChange >= quietMs) {
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+
+  /**
+   * @param {string} message
+   * @param {number} [timeout]
+   */
   async prompt(message, timeout = TIMEOUT_MS) {
     const before = this.events.length;
     this.send({ type: 'prompt', message });
@@ -286,14 +310,17 @@ class PiRpc {
       const resp = slice.find(
         (e) => e.type === 'response' && e.command === 'prompt',
       );
-      if (settled || ended) return slice;
+      if (settled || ended) {
+        await this.waitNotifyQuiet(300);
+        return this.events.slice(before);
+      }
       if (
         resp &&
         resp.success &&
         !slice.some((e) => e.type === 'agent_start') &&
         Date.now() - start > 400
       ) {
-        await new Promise((r) => setTimeout(r, 200));
+        await this.waitNotifyQuiet(400);
         return this.events.slice(before);
       }
       await new Promise((r) => setTimeout(r, 100));
@@ -324,7 +351,10 @@ class PiRpc {
       .map((e) => e.data);
   }
 
-  /** @returns {Promise<string[]>} */
+  /**
+   * 注入审计：core 在 systemPrompt 内容 hash 变化时 appendEntry(skeg/context)。
+   * @returns {Promise<string[]>}
+   */
   async getSkegContexts() {
     const entries = await this.getEntries();
     return entries
@@ -333,7 +363,10 @@ class PiRpc {
           e.customType === 'skeg/context' &&
           (e.type === 'custom_message' || e.type === 'custom'),
       )
-      .map((e) => String(e.content ?? e.data?.content ?? ''));
+      .map((e) => {
+        const data = /** @type {{ content?: unknown } | undefined} */ (e.data);
+        return String(e.content ?? data?.content ?? '');
+      });
   }
 
   async stop() {
@@ -744,7 +777,7 @@ async function runScenario(pi, scenario, round = 0) {
     const contexts = await pi.getSkegContexts();
     const hit = contexts.some(
       (c) =>
-        /Records\s*\(\.skeg\/records\/\)/.test(c) &&
+        /Records\s*\(relevant\)/i.test(c) &&
         /DEC-\d+|INC-\d+|MIG-\d+/.test(c),
     );
     if (!hit) {

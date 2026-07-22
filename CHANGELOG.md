@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.0 — 2026-07-22
+
+Real-host Green：实机 smoke 剧本对齐 closure / 注入语义，源码与 `--dist` 双 PASS。
+
+### Added
+- `skeg/context` 审计 entry：`before_agent_start` 注入内容 hash 变化时落盘（不进 LLM；供 smoke/host 观测）
+- pi-smoke lean1：真实 `npm test -- <path>` → targeted-test 证据 → `/finish` 真关闭
+- pi-smoke lean2：无证据 `/finish` 拒绝（false-green）后 `/finish --abandon` 清场
+- pi-smoke risk：`/finish --waive` 关闭并断言 Waivers 报告
+
+### Fixed
+- smoke/host 断言从过时的 `Records (.skeg/records/)` / `custom_message` 改为 `Records (relevant)` + `skeg/context` entry
+- slash 命令 harness：`waitNotifyQuiet` 避免 notify 落到下一轮断言（`/status` 竞态）
+
 ## 0.8.0 — 2026-07-22
 
 Compat Split + CI 硬化。
