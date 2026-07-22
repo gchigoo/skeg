@@ -1,6 +1,6 @@
 {
   "name": "@gchigoo/skeg",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Minimal engineering workflow for coding agents. Stay light. Hold course.",
   "type": "module",
   "keywords": [
@@ -9,10 +9,18 @@
     "workflow"
   ],
   "license": "MIT",
+  "exports": {
+    "./provider-api": "./src/provider-api.ts",
+    "./*": "./*"
+  },
+  "bin": {
+    "skeg-provider-test": "./scripts/provider-test.mjs"
+  },
   "files": [
     "extensions",
     "prompts",
     "src",
+    "scripts/provider-test.mjs",
     "templates",
     "README.md",
     "LICENSE",

@@ -325,7 +325,7 @@ export function untrustProvider(
  * @param providers 配置数组
  * @returns hex hash
  */
-export function providersConfigHash(providers: string[] | undefined): string {
+export function providersConfigHash(providers: unknown[] | undefined): string {
   return createHash('sha256')
     .update(JSON.stringify(providers ?? []))
     .digest('hex');

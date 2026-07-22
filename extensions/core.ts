@@ -24,6 +24,7 @@ import {
   emptyProviders,
   loadProviders,
   mergePolicyHits,
+  requiredPolicyUnavailable,
   type LoadedProviders,
   type ProviderRuntimeError,
 } from '../src/providers.ts';
@@ -38,6 +39,7 @@ import {
   scanToolCall,
 } from '../src/risk.ts';
 import { isOpenRun, latestRunFromEntries } from '../src/run.ts';
+import { toolResultText } from '../src/tooloutput.ts';
 import { providersConfigHash } from '../src/trust.ts';
 import { RUN_ENTRY_TYPE, type RunState, type SkegConfig } from '../src/types.ts';
 
@@ -247,6 +249,27 @@ export default function (pi: ExtensionAPI) {
       disabledProviderSpecs,
     );
     noteProviderErrors(ctx.ui, merged.errors);
+    if (merged.diagnostics.length > 0) notifyDiagnostics(ctx.ui, merged.diagnostics);
+    const mutating =
+      tool === 'write' ||
+      tool === 'edit' ||
+      (tool === 'bash' &&
+        typeof input.command === 'string' &&
+        classifyBashEffect(input.command).kind !== 'read');
+    const requiredFail = mutating
+      ? requiredPolicyUnavailable(
+          providers,
+          disabledProviderSpecs,
+          merged.errors,
+        )
+      : null;
+    if (requiredFail) {
+      pendingMutations.take(toolCallId);
+      return {
+        block: true,
+        reason: `Skeg blocked (provider-error): ${requiredFail}`,
+      };
+    }
     const gatedHits = merged.hits.filter((h) => requiresGate(h.trigger, config));
     if (gatedHits.length === 0) return undefined;
 
@@ -346,6 +369,9 @@ export default function (pi: ExtensionAPI) {
         disabledProviderSpecs,
       );
       noteProviderErrors(ctx.ui, classified.errors);
+      if (classified.diagnostics.length > 0) {
+        notifyDiagnostics(ctx.ui, classified.diagnostics);
+      }
       if (classified.check) {
         if (inspectExitIntegrity(command) === 'masked') {
           ctx.ui.notify(
@@ -353,27 +379,14 @@ export default function (pi: ExtensionAPI) {
             'warning',
           );
         } else {
-          const output =
-            typeof event.content === 'string'
-              ? event.content
-              : Array.isArray(event.content)
-                ? event.content
-                    .map((c) =>
-                      typeof c === 'string'
-                        ? c
-                        : typeof c === 'object' && c && 'text' in c
-                          ? String((c as { text?: unknown }).text ?? '')
-                          : '',
-                    )
-                    .join('\n')
-                : '';
           await dispatch({
             type: 'CHECK_RECORDED',
             check: buildCommandCheck(
               classified.check.name,
               command,
               !event.isError,
-              output,
+              toolResultText(event.content),
+              classified.check.source,
             ),
           });
         }

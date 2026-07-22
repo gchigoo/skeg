@@ -415,7 +415,9 @@ export default {
       assert.equal(trustProvider(cwd, spec).ok, true);
       const loaded = await loadProviders(cwd, {
         ...DEFAULT_CONFIG,
-        providers: [spec],
+        providers: [
+          { id: 'special', spec, required: false, priority: 0 },
+        ],
       });
       assert.equal(loaded.checks.length, 1);
 
@@ -434,6 +436,7 @@ export default {
       assert.deepEqual(classified.check, {
         kind: 'command',
         name: 'special-verify',
+        source: 'provider:special',
       });
       assert.equal(Number(readFileSync(counterPath, 'utf8')), 1);
 
@@ -482,7 +485,14 @@ export default { checks: { classify() { return null; } } };
       );
       const loaded = await loadProviders(cwd, {
         ...DEFAULT_CONFIG,
-        providers: ['.skeg/providers/evil.mjs'],
+        providers: [
+          {
+            id: 'evil',
+            spec: '.skeg/providers/evil.mjs',
+            required: false,
+            priority: 0,
+          },
+        ],
       });
       assert.equal(loaded.checks.length, 0);
       assert.equal(
@@ -529,6 +539,236 @@ export default { checks: { classify() { return null; } } };
       };
       assert.equal(evaluateClosure(run, cfg).ok, false);
       assert.ok(evaluateClosure(run, cfg).missing.includes('test'));
+    }
+  });
+
+  await inv('required PolicyProvider 抛错 → mutation 必须 block', async () => {
+    const {
+      mergePolicyHits,
+      requiredPolicyUnavailable,
+    } = await import(pathToFileURL(join(root, 'src/providers.ts')).href);
+    const merged = mergePolicyHits(
+      [],
+      { toolName: 'write', input: {}, paths: ['a.ts'] },
+      DEFAULT_CONFIG,
+      [
+        {
+          id: 'req',
+          spec: 'req',
+          required: true,
+          priority: 0,
+          impl: {
+            inspect: () => {
+              throw new Error('policy boom');
+            },
+          },
+        },
+      ],
+    );
+    const reason = requiredPolicyUnavailable(
+      {
+        policies: [],
+        checks: [],
+        records: [],
+        diagnostics: [],
+        configHash: '',
+        entries: [],
+        requiredPolicyFailures: [],
+      },
+      new Set(),
+      merged.errors,
+    );
+    assert.ok(reason);
+    assert.match(reason, /required PolicyProvider/);
+  });
+
+  await inv('Provider 返回 malformed RiskHit → 拒绝并有 diagnostic', async () => {
+    const { mergePolicyHits } = await import(
+      pathToFileURL(join(root, 'src/providers.ts')).href
+    );
+    const merged = mergePolicyHits(
+      [],
+      { toolName: 'write', input: {}, paths: [] },
+      DEFAULT_CONFIG,
+      [
+        {
+          id: 'bad',
+          spec: 'bad',
+          required: false,
+          priority: 0,
+          impl: {
+            inspect: () => [{ trigger: 'nope', reason: 'x' }],
+          },
+        },
+      ],
+    );
+    assert.equal(merged.hits.length, 0);
+    assert.ok(merged.diagnostics.some((d) => d.message.includes('invalid trigger')));
+  });
+
+  await inv('两个 Provider 返回相同 RiskHit → 只出现一个', async () => {
+    const { mergePolicyHits } = await import(
+      pathToFileURL(join(root, 'src/providers.ts')).href
+    );
+    const hit = {
+      trigger: 'databaseMigration',
+      strength: 'deterministic',
+      path: 'm.sql',
+      reason: 'sql',
+    };
+    const merged = mergePolicyHits(
+      [],
+      { toolName: 'write', input: {}, paths: ['m.sql'] },
+      DEFAULT_CONFIG,
+      [
+        {
+          id: 'a',
+          spec: 'a',
+          required: false,
+          priority: 10,
+          impl: { inspect: () => [hit] },
+        },
+        {
+          id: 'b',
+          spec: 'b',
+          required: false,
+          priority: 5,
+          impl: { inspect: () => [hit] },
+        },
+      ],
+    );
+    assert.equal(merged.hits.length, 1);
+  });
+
+  await inv('两个 CheckProvider 同优先级分类冲突 → 取先者且有 diagnostic', async () => {
+    const { classifyWithProviders } = await import(
+      pathToFileURL(join(root, 'src/providers.ts')).href
+    );
+    const result = classifyWithProviders('cmd-x', DEFAULT_CONFIG, null, [
+      {
+        id: 'a',
+        spec: 'a',
+        required: false,
+        priority: 1,
+        impl: { classify: () => ({ kind: 'command', name: 'alpha' }) },
+      },
+      {
+        id: 'b',
+        spec: 'b',
+        required: false,
+        priority: 1,
+        impl: { classify: () => ({ kind: 'command', name: 'beta' }) },
+      },
+    ]);
+    assert.equal(result.check?.name, 'alpha');
+    assert.ok(result.diagnostics.some((d) => d.message.includes('conflict')));
+  });
+
+  await inv('RecordSelector 返回空 augment → 不清空 fallback', async () => {
+    const { selectRecordsWithProviders } = await import(
+      pathToFileURL(join(root, 'src/providers.ts')).href
+    );
+    const selected = selectRecordsWithProviders(
+      { cwd: '/tmp', intent: 'x', changedFiles: [] },
+      [
+        {
+          id: 'aug',
+          spec: 'aug',
+          required: false,
+          priority: 0,
+          impl: {
+            select: () => ({ mode: 'augment', records: [] }),
+          },
+        },
+      ],
+      () => [
+        {
+          id: 'fallback',
+          type: 'decision',
+          title: 'keep',
+          fileName: 'k.md',
+          createdAt: '',
+        },
+      ],
+    );
+    assert.equal(selected.records[0]?.id, 'fallback');
+  });
+
+  await inv('Provider 加载后未 reload → session 冻结 configHash', async () => {
+    const userDir = mkdtempSync(join(tmpdir(), 'skeg-rt-freeze-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'skeg-rt-freeze-cwd-'));
+    const prevUserDir = process.env.SKEG_USER_DIR;
+    process.env.SKEG_USER_DIR = userDir;
+    try {
+      mkdirSync(join(cwd, '.skeg', 'providers'), { recursive: true });
+      const spec = '.skeg/providers/freeze.mjs';
+      writeFileSync(
+        join(cwd, spec),
+        `export default {
+  apiVersion: 1,
+  id: 'freeze',
+  capabilities: ['check'],
+  checks: {
+    classify(command) {
+      return command === 'just freeze-a'
+        ? { kind: 'command', name: 'freeze-a' }
+        : null;
+    }
+  }
+};
+`,
+        'utf8',
+      );
+      const { trustProvider, providersConfigHash } = await import(
+        pathToFileURL(join(root, 'src/trust.ts')).href
+      );
+      const { loadProviders, classifyWithProviders } = await import(
+        pathToFileURL(join(root, 'src/providers.ts')).href
+      );
+      assert.equal(trustProvider(cwd, spec).ok, true);
+      const entries = [{ id: 'freeze', spec, required: false, priority: 0 }];
+      const loaded = await loadProviders(cwd, {
+        ...DEFAULT_CONFIG,
+        providers: entries,
+      });
+      const hashAtLoad = loaded.configHash;
+      assert.equal(hashAtLoad, providersConfigHash(entries));
+
+      // 修改文件但不 reload：已加载的 classify 实现仍来自旧模块缓存
+      writeFileSync(
+        join(cwd, spec),
+        `export default {
+  apiVersion: 1,
+  id: 'freeze',
+  capabilities: ['check'],
+  checks: {
+    classify(command) {
+      return command === 'just freeze-b'
+        ? { kind: 'command', name: 'freeze-b' }
+        : null;
+    }
+  }
+};
+`,
+        'utf8',
+      );
+      const still = classifyWithProviders(
+        'just freeze-a',
+        DEFAULT_CONFIG,
+        null,
+        loaded.checks,
+      );
+      assert.equal(still.check?.name, 'freeze-a');
+      // 配置未变则 hash 不变（提示需显式 reload 才会重载文件）
+      assert.equal(
+        providersConfigHash(entries),
+        hashAtLoad,
+      );
+    } finally {
+      if (prevUserDir === undefined) delete process.env.SKEG_USER_DIR;
+      else process.env.SKEG_USER_DIR = prevUserDir;
+      rmSync(userDir, { recursive: true, force: true });
+      rmSync(cwd, { recursive: true, force: true });
     }
   });
 

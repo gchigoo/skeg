@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.2 — 2026-07-22
+
+Provider API Hardening.
+
+### Added
+- 公共入口 `@gchigoo/skeg/provider-api`：`defineProvider` / `SkegProviderV1` / `apiVersion: 1`
+- `providers[]` 对象形式：`{ id, spec, required?, priority? }`（字符串仍兼容）
+- Provider 输出校验（`src/providervalidate.ts`）与 `source: provider:<id>` provenance
+- RecordSelector `{ mode: 'augment'|'replace', records }`；确定性 policy/check 合并
+- `npx skeg-provider-test` conformance 工具
+- runtime invariants：required fail-closed、malformed hits、dedupe、冲突 diagnostic、augment、session freeze
+
+### Changed
+- required PolicyProvider 加载/运行失败 → mutation block（provider-error）
+- 普通字符串子串 CheckMatcher 配置加载时弃用 warning；正则限制长度与 flags（`imsu`）
+- `/skeg status` 展示 provider 来源
+
 ## 0.6.1 — 2026-07-22
 
 Trusted Evidence.

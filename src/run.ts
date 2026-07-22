@@ -225,9 +225,11 @@ export function formatStatus(run: RunState | null): string {
           .map((c) => {
             const stale = c.revision !== run.revision;
             const mark = c.passed ? 'pass' : 'fail';
+            const src =
+              c.source && c.source !== 'builtin' ? `/${c.source}` : '';
             return stale
-              ? `${mark}:${c.name}@r${c.revision}(stale)`
-              : `${mark}:${c.name}@r${c.revision}`;
+              ? `${mark}:${c.name}@r${c.revision}${src}(stale)`
+              : `${mark}:${c.name}@r${c.revision}${src}`;
           })
           .join(', ');
   const gate = run.pendingGate
@@ -244,7 +246,11 @@ export function formatStatus(run: RunState | null): string {
     run.preExistingFiles && run.preExistingFiles.length > 0
       ? run.preExistingFiles.join(', ')
       : '(none)';
-  return [
+  const gateSources = (run.pendingGate?.hits ?? [])
+    .map((h) => h.source)
+    .filter((s) => s && s !== 'builtin');
+  const uniqueSources = [...new Set(gateSources)];
+  const lines = [
     `Intent:  ${run.intent}`,
     `Status:  ${run.status}`,
     `Phase:   ${run.phase}`,
@@ -255,8 +261,12 @@ export function formatStatus(run: RunState | null): string {
     `Checks:  ${checks}`,
     `Signals: ${signals}`,
     `Gate:    ${gate}`,
-    `Id:      ${run.id}`,
-  ].join('\n');
+  ];
+  if (uniqueSources.length > 0) {
+    lines.push(`Sources: ${uniqueSources.join(', ')}`);
+  }
+  lines.push(`Id:      ${run.id}`);
+  return lines.join('\n');
 }
 
 /**

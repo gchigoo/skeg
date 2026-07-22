@@ -48,7 +48,7 @@ Prompt template:
 
 ## Status
 
-**v0.6.1** — Trusted Evidence：Provider workspace trust、Shell 退出码完整性、未信任 Provider 不执行；在 v0.6.0 Extension Contract 之上封口扩展信任边界。
+**v0.6.2** — Provider API Hardening：`@gchigoo/skeg/provider-api`、required/priority、输出校验与 provenance、确定性合并；在 v0.6.1 Trusted Evidence 之上稳定扩展契约。
 
 ```bash
 npm run verify
@@ -75,8 +75,36 @@ npm run dogfood:host -- --cwd . --profile skeg
       "unit-smoke": { "kind": "regex", "pattern": "/^make\\s+smoke(?:\\s|$)/i" }
     }
   },
-  "providers": [".skeg/providers/my-policy.mjs"]
+  "providers": [
+    {
+      "id": "postgres",
+      "spec": ".skeg/providers/postgres.mjs",
+      "required": true,
+      "priority": 100
+    }
+  ]
 }
+```
+
+Provider module (public API only):
+
+```js
+import { defineProvider } from '@gchigoo/skeg/provider-api';
+
+export default defineProvider({
+  apiVersion: 1,
+  id: 'postgres',
+  capabilities: ['policy', 'check'],
+  policies: {
+    inspect(action) {
+      return [];
+    },
+  },
+});
+```
+
+```bash
+npx skeg-provider-test .skeg/providers/postgres.mjs
 ```
 
 - 成功修改工作区 → `revision+1`，旧 checks 变 stale；`/finish` 只接受当前 revision 证据
@@ -84,6 +112,8 @@ npm run dogfood:host -- --cwd . --profile skeg
 - `cat migrations/*.sql` 为 read，不记变更、不弹 gate
 - Providers 仅可位于 `.skeg/providers/**`（或裸包名）；须 `/skeg trust <spec>` 后才加载；内容变更后信任失效
 - `/skeg providers` / `trust` / `untrust` / `providers reload` 管理扩展信任
+- `required` PolicyProvider 失效时阻断 mutation；optional 失败仅 warning + session 禁用
+- `/skeg status` 展示 check/gate 的 `provider:<id>` provenance
 - `pnpm test || true` 等掩盖退出码的命令不记为 check 证据
 - Providers 可追加 Policy / Check / Record；不能增加新的核心阶段状态机（见 `NON_GOALS.md`）
 

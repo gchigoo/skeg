@@ -2,11 +2,17 @@
  * command check 自动记账：从 bash 验证命令结果写入 RunState.checks。
  */
 import { matchCheckPattern } from './checkspec.ts';
-import type { CheckMatcher, CheckRun, SkegConfig } from './types.ts';
+import type {
+  CheckMatcher,
+  CheckRun,
+  EvidenceSource,
+  SkegConfig,
+} from './types.ts';
 
 export type ClassifiedCheck = {
   kind: 'command';
   name: string;
+  source?: EvidenceSource;
 };
 
 const EVIDENCE_MAX = 400;
@@ -138,6 +144,7 @@ export function classifyCheckCommand(
  * @param command 原命令
  * @param passed 是否成功
  * @param output 工具输出（可空）
+ * @param source 分类来源
  * @returns CheckRun 草稿
  */
 export function buildCommandCheck(
@@ -145,6 +152,7 @@ export function buildCommandCheck(
   command: string,
   passed: boolean,
   output?: string,
+  source?: EvidenceSource,
 ): Omit<CheckRun, 'id' | 'revision' | 'observedAt'> &
   Partial<Pick<CheckRun, 'id' | 'revision' | 'observedAt'>> {
   const tail = (output ?? '').trim().slice(-EVIDENCE_MAX);
@@ -157,6 +165,7 @@ export function buildCommandCheck(
     passed,
     command,
     exitCode: passed ? 0 : 1,
+    source,
     evidence: evidence.length > EVIDENCE_MAX + 80
       ? `${evidence.slice(0, EVIDENCE_MAX + 80)}…`
       : evidence,

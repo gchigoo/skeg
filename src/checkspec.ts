@@ -60,6 +60,18 @@ export function isCheckMatcher(value: unknown): value is CheckMatcher {
 }
 
 /**
+ * 校验正则 flags / 长度；非法则不可匹配。
+ * @param body 正则体
+ * @param flags flags
+ * @returns 是否合法
+ */
+function isSafeRegex(body: string, flags: string): boolean {
+  if (!body || body.length > 200) return false;
+  if (flags && !/^[imsu]*$/.test(flags)) return false;
+  return true;
+}
+
+/**
  * 测试命令是否匹配单个 CheckMatcher / 字符串模式。
  * @param command bash 命令
  * @param match 匹配定义
@@ -75,12 +87,14 @@ export function matchCheckPattern(
       const last = match.lastIndexOf('/');
       const body = match.slice(1, last);
       const flags = match.slice(last + 1);
+      if (!isSafeRegex(body, flags)) return false;
       try {
         return new RegExp(body, flags).test(command);
       } catch {
         return false;
       }
     }
+    // 弃用的子串语义（配置加载时已 warning）
     return command.includes(match);
   }
 
@@ -94,12 +108,14 @@ export function matchCheckPattern(
 
   if (match.kind === 'regex') {
     const pattern = match.pattern;
+    if (!pattern || pattern.length > 200) return false;
     if (pattern.startsWith('/') && pattern.lastIndexOf('/') > 0) {
       const last = pattern.lastIndexOf('/');
+      const body = pattern.slice(1, last);
+      const flags = pattern.slice(last + 1);
+      if (!isSafeRegex(body, flags)) return false;
       try {
-        return new RegExp(pattern.slice(1, last), pattern.slice(last + 1)).test(
-          command,
-        );
+        return new RegExp(body, flags).test(command);
       } catch {
         return false;
       }

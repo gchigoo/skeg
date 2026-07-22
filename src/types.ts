@@ -29,6 +29,9 @@ export type GateStatus = 'pending' | 'approved' | 'denied';
 /** @deprecated 使用 CheckRun；保留别名便于渐进迁移 */
 export type CheckResult = CheckRun;
 
+/** 证据/命中的来源标注（builtin 或第三方 Provider） */
+export type EvidenceSource = 'builtin' | `provider:${string}`;
+
 export type CheckRun = {
   id: string;
   kind: CheckKind;
@@ -39,6 +42,8 @@ export type CheckRun = {
   exitCode?: number;
   evidence?: string;
   observedAt: string;
+  /** 分类来源；缺省视为 builtin */
+  source?: EvidenceSource;
 };
 
 export type RiskSignal = {
@@ -155,8 +160,8 @@ export type SkegConfig = {
      */
     commands?: Record<string, string | CheckMatcher>;
   };
-  /** 可选：第三方 Provider 模块路径（相对 cwd 或包名） */
-  providers?: string[];
+  /** 可选：第三方 Provider（字符串或对象，加载时归一为 ProviderConfigEntry） */
+  providers?: ProviderConfigEntry[];
 };
 
 export type RiskHit = {
@@ -166,6 +171,17 @@ export type RiskHit = {
   reason: string;
   /** 危险命令等动作指纹；用于 gate acknowledgement key */
   fingerprint?: string;
+  /** 命中来源；缺省视为 builtin */
+  source?: EvidenceSource;
+};
+
+/** `.skeg/config.json` 中 providers[] 归一后的条目 */
+export type ProviderConfigEntry = {
+  id: string;
+  spec: string;
+  required: boolean;
+  /** 数值越大越优先；默认 0 */
+  priority: number;
 };
 
 export type ConfigDiagnostic = {

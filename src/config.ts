@@ -12,6 +12,7 @@ import {
   type ConfigDiagnostic,
   type ConfigLoadResult,
   type PolicyAction,
+  type ProviderConfigEntry,
   type RiskLevel,
   type SkegConfig,
   type TriggerId,
@@ -213,8 +214,27 @@ function parseCommands(
   for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
     if (typeof value === 'string') {
       out[name] = value;
+      // 普通子串 matcher 弃用；/regex/ 字符串仍可接受
+      if (!(value.startsWith('/') && value.lastIndexOf('/') > 0)) {
+        diagnostics.push({
+          level: 'warning',
+          path: `checks.commands.${name}`,
+          message:
+            'Plain substring matchers are deprecated; use /regex/ or structured CheckMatcher (package-script|argv|regex)',
+        });
+      }
     } else if (isCheckMatcher(value)) {
       out[name] = value;
+      if (value.kind === 'regex') {
+        const issue = validateRegexPattern(value.pattern);
+        if (issue) {
+          diagnostics.push({
+            level: 'warning',
+            path: `checks.commands.${name}`,
+            message: issue,
+          });
+        }
+      }
     } else {
       diagnostics.push({
         level: 'warning',
@@ -227,25 +247,87 @@ function parseCommands(
 }
 
 /**
- * 解析 providers 路径列表。
+ * 校验正则 pattern 复杂度限制。
+ * @param pattern 模式
+ * @returns 错误消息或 null
+ */
+function validateRegexPattern(pattern: string): string | null {
+  if (!pattern) return 'regex pattern must not be empty';
+  if (pattern.length > 200) return 'regex pattern exceeds 200 characters';
+  if (pattern.startsWith('/') && pattern.lastIndexOf('/') > 0) {
+    const last = pattern.lastIndexOf('/');
+    const flags = pattern.slice(last + 1);
+    if (flags && !/^[imsu]*$/.test(flags)) {
+      return 'regex flags must be a subset of imsu (g/y rejected)';
+    }
+  }
+  return null;
+}
+
+/**
+ * 解析 providers：string | { id?, spec, required?, priority? }。
  * @param raw 原始值
  * @param diagnostics 诊断
- * @returns providers 或 undefined
+ * @returns 归一后的条目
  */
 function parseProviders(
   raw: unknown,
   diagnostics: ConfigDiagnostic[],
-): string[] | undefined {
+): ProviderConfigEntry[] | undefined {
   if (raw === undefined) return undefined;
-  if (!Array.isArray(raw) || !raw.every((x) => typeof x === 'string')) {
+  if (!Array.isArray(raw)) {
     diagnostics.push({
       level: 'warning',
       path: 'providers',
-      message: 'Expected string[]; ignoring',
+      message: 'Expected array; ignoring',
     });
     return undefined;
   }
-  return raw as string[];
+  const out: ProviderConfigEntry[] = [];
+  for (let i = 0; i < raw.length; i += 1) {
+    const item = raw[i];
+    const path = `providers[${i}]`;
+    if (typeof item === 'string') {
+      const spec = item.trim();
+      if (!spec) {
+        diagnostics.push({
+          level: 'warning',
+          path,
+          message: 'Expected non-empty string; skipping',
+        });
+        continue;
+      }
+      out.push({ id: spec, spec, required: false, priority: 0 });
+      continue;
+    }
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      diagnostics.push({
+        level: 'warning',
+        path,
+        message: 'Expected string or {spec,id?,required?,priority?}; skipping',
+      });
+      continue;
+    }
+    const obj = item as Record<string, unknown>;
+    if (typeof obj.spec !== 'string' || !obj.spec.trim()) {
+      diagnostics.push({
+        level: 'warning',
+        path,
+        message: 'Object provider requires non-empty spec; skipping',
+      });
+      continue;
+    }
+    const spec = obj.spec.trim();
+    const id =
+      typeof obj.id === 'string' && obj.id.trim() ? obj.id.trim() : spec;
+    const required = obj.required === true;
+    const priority =
+      typeof obj.priority === 'number' && Number.isFinite(obj.priority)
+        ? obj.priority
+        : 0;
+    out.push({ id, spec, required, priority });
+  }
+  return out;
 }
 
 /**
