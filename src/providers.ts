@@ -24,6 +24,7 @@ import type { RecordIndexEntry } from './record.ts';
 import {
   checkProviderTrust,
   classifyProviderSpec,
+  hashProviderContent,
   providersConfigHash,
   resolveTrustedProviderTarget,
 } from './trust.ts';
@@ -251,8 +252,38 @@ export async function loadProviders(
       continue;
     }
 
+    // 绑定 contentHash 到 import URL，打破 ESM 缓存并收窄 TOCTOU
+    const hashed = hashProviderContent(cwd, trimmed);
+    if (!hashed.ok) {
+      diagnostics.push({ level: 'error', path, message: hashed.reason });
+      if (entry.required) {
+        requiredPolicyFailures.push({
+          id: entry.id,
+          spec: trimmed,
+          reason: hashed.reason,
+        });
+      }
+      continue;
+    }
+    if (trust.trusted && trust.contentHash !== hashed.hash) {
+      diagnostics.push({
+        level: 'error',
+        path,
+        message: 'provider content changed between trust check and load',
+      });
+      if (entry.required) {
+        requiredPolicyFailures.push({
+          id: entry.id,
+          spec: trimmed,
+          reason: 'provider content changed between trust check and load',
+        });
+      }
+      continue;
+    }
+    const importTarget = `${resolved.target}?skeg=${hashed.hash}`;
+
     try {
-      const mod = (await import(resolved.target)) as {
+      const mod = (await import(importTarget)) as {
         default?: unknown;
       } & Record<string, unknown>;
       const bundle = normalizeBundle(mod, entry.id, path);

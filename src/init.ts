@@ -153,6 +153,7 @@ const FALLBACK_CONFIG = `${JSON.stringify(
       dependencyChange: { risk: 'guarded', action: 'confirm' },
       publicApiChange: { risk: 'guarded', action: 'confirm' },
       authChange: { risk: 'guarded', action: 'confirm' },
+      controlPlane: { risk: 'guarded', action: 'confirm' },
     },
     checks: {
       default: ['targeted-test', 'diff'],

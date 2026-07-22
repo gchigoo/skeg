@@ -7,12 +7,14 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   writeFileSync,
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isRealDescendant, normalizePath, tryRealpath } from './paths.ts';
 
 export type ProviderTrust = {
   repoRealPath: string;
@@ -44,12 +46,65 @@ export function skegUserDir(): string {
 }
 
 /**
- * 规范化仓库根路径（用于信任键）。
+ * 规范化仓库根路径（用于信任键；优先 realpath）。
  * @param cwd 项目根
  * @returns 规范化绝对路径
  */
 export function normalizeRepoPath(cwd: string): string {
-  return resolve(cwd);
+  return tryRealpath(resolve(cwd));
+}
+
+/**
+ * 检测 workspace Provider 是否含相对路径运行时依赖（禁止多文件 Provider）。
+ * @param source 源码文本
+ * @returns 违规描述或 null
+ */
+export function findRelativeRuntimeImport(source: string): string | null {
+  // 去掉行注释与块注释，降低误报
+  const stripped = source
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+
+  const patterns: RegExp[] = [
+    /\bfrom\s+['"](\.[^'"]+)['"]/g,
+    /\bimport\s*\(\s*['"](\.[^'"]+)['"]\s*\)/g,
+    /\brequire\s*\(\s*['"](\.[^'"]+)['"]\s*\)/g,
+    /\bimport\s+['"](\.[^'"]+)['"]/g,
+  ];
+  for (const re of patterns) {
+    const match = re.exec(stripped);
+    if (match?.[1]) {
+      return `relative import "${match[1]}"`;
+    }
+  }
+  return null;
+}
+
+/**
+ * 校验 workspace-file Provider 必须为零依赖单文件。
+ * @param entryPath 入口绝对路径
+ * @returns ok 或错误原因
+ */
+export function assertSelfContainedProvider(
+  entryPath: string,
+): { ok: true } | { ok: false; reason: string } {
+  let body: string;
+  try {
+    body = readFileSync(entryPath, 'utf8');
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `cannot read provider: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  const hit = findRelativeRuntimeImport(body);
+  if (hit) {
+    return {
+      ok: false,
+      reason: `workspace providers must be self-contained single files (${hit} not allowed)`,
+    };
+  }
+  return { ok: true };
 }
 
 /**
@@ -131,8 +186,9 @@ export function resolveTrustedProviderTarget(
   if (!classified.ok) return classified;
 
   if (classified.kind === 'workspace-file') {
-    const abs = resolve(cwd, classified.relative);
-    const rel = relative(resolve(cwd), abs);
+    const repoReal = normalizeRepoPath(cwd);
+    const abs = resolve(repoReal, classified.relative);
+    const rel = relative(repoReal, abs);
     if (
       rel.startsWith('..') ||
       isAbsolute(rel) ||
@@ -143,7 +199,46 @@ export function resolveTrustedProviderTarget(
     if (!existsSync(abs)) {
       return { ok: false, reason: `provider file not found: ${classified.relative}` };
     }
-    return { ok: true, target: pathToFileURL(abs).href, entryPath: abs };
+    let entryReal: string;
+    try {
+      entryReal = realpathSync.native(abs);
+    } catch {
+      try {
+        entryReal = realpathSync(abs);
+      } catch {
+        return {
+          ok: false,
+          reason: `cannot resolve provider realpath: ${classified.relative}`,
+        };
+      }
+    }
+    if (!isRealDescendant(repoReal, entryReal)) {
+      return {
+        ok: false,
+        reason: 'provider realpath escapes workspace',
+      };
+    }
+    const providersRoot = join(repoReal, PROVIDERS_DIR);
+    const providersReal = existsSync(providersRoot)
+      ? tryRealpath(providersRoot)
+      : resolve(providersRoot);
+    const underProviders =
+      normalizePath(entryReal) === normalizePath(providersReal) ||
+      isRealDescendant(providersReal, dirname(entryReal)) ||
+      isRealDescendant(providersReal, entryReal);
+    if (!underProviders) {
+      return {
+        ok: false,
+        reason: 'provider realpath escapes .skeg/providers',
+      };
+    }
+    const self = assertSelfContainedProvider(entryReal);
+    if (!self.ok) return self;
+    return {
+      ok: true,
+      target: pathToFileURL(entryReal).href,
+      entryPath: entryReal,
+    };
   }
 
   try {

@@ -2,13 +2,21 @@
  * Provider trust 存储与路径边界。
  */
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
+  assertSelfContainedProvider,
   checkProviderTrust,
   classifyProviderSpec,
+  findRelativeRuntimeImport,
   hashProviderContent,
   trustProvider,
   untrustProvider,
@@ -96,5 +104,19 @@ describe('trustProvider', () => {
     const hashed = hashProviderContent(cwd, '.skeg/providers/special.mjs');
     assert.equal(hashed.ok, true);
     if (hashed.ok) assert.match(hashed.hash, /^[a-f0-9]{64}$/);
+  });
+
+  it('rejects relative runtime imports (ProviderHelperHashBypass)', () => {
+    const multi = join(cwd, '.skeg', 'providers', 'multi.mjs');
+    writeFileSync(
+      multi,
+      'import { x } from "./helper.mjs";\nexport default { apiVersion: 1, id: "m", capabilities: [] };\n',
+      'utf8',
+    );
+    assert.ok(findRelativeRuntimeImport(readFileSync(multi, 'utf8')));
+    const self = assertSelfContainedProvider(multi);
+    assert.equal(self.ok, false);
+    const trusted = trustProvider(cwd, '.skeg/providers/multi.mjs');
+    assert.equal(trusted.ok, false);
   });
 });

@@ -16,7 +16,11 @@ import {
   loadConfigWithDiagnostics,
 } from '../src/config.ts';
 import { classifyBashEffect, isMutatingEffect } from '../src/effects.ts';
-import { inspectExitIntegrity } from '../src/exitintegrity.ts';
+import {
+  commandForCheckClassification,
+  inspectExitIntegrity,
+  unwrapShellWrapper,
+} from '../src/exitintegrity.ts';
 import {
   acknowledgedGates,
   clearHostSession,
@@ -45,6 +49,7 @@ import {
 } from '../src/risk.ts';
 import { isOpenRun, latestRunFromEntries } from '../src/run.ts';
 import { toolResultText } from '../src/tooloutput.ts';
+import { buildRunContract } from '../src/contract.ts';
 import { providersConfigHash } from '../src/trust.ts';
 import { RUN_ENTRY_TYPE, type RunState, type SkegConfig } from '../src/types.ts';
 
@@ -112,13 +117,24 @@ export default function (pi: ExtensionAPI) {
   };
 
   const dispatch = (event: SkegEvent): Promise<void> => {
-    queue = queue.then(() => {
-      const next = reduce(run, event);
-      if (!sameState(run, next)) {
-        run = next;
-        pi.appendEntry(RUN_ENTRY_TYPE, next);
-      }
-    });
+    // catch 防毒化：单次 reduce 异常后队列仍可继续
+    queue = queue
+      .then(() => {
+        const next = reduce(run, event);
+        if (!sameState(run, next)) {
+          run = next;
+          pi.appendEntry(RUN_ENTRY_TYPE, next);
+        }
+      })
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        try {
+          // ExtensionAPI 无全局 ui；异常吞掉以免毒化后续 dispatch
+          console.warn(`Skeg dispatch error (queue kept alive): ${message}`);
+        } catch {
+          /* ignore */
+        }
+      });
     return queue;
   };
 
@@ -193,6 +209,7 @@ export default function (pi: ExtensionAPI) {
           intent,
           risk: config.defaultPolicy,
           baseline: captureBaseline(ctx.cwd),
+          contract: buildRunContract(config),
         });
         clearHostSession();
       }
@@ -392,34 +409,47 @@ export default function (pi: ExtensionAPI) {
     if (event.toolName.toLowerCase() === 'bash') {
       const input = event.input as Record<string, unknown>;
       const command = typeof input.command === 'string' ? input.command : '';
-      const classified = classifyWithProviders(
-        command,
-        config,
-        classifyCheckCommand(command, config),
-        providers.checks,
-        disabledProviderSpecs,
-      );
-      noteProviderErrors(ctx.ui, classified.errors);
-      if (classified.diagnostics.length > 0) {
-        notifyDiagnostics(ctx.ui, classified.diagnostics);
-      }
-      if (classified.check) {
-        if (inspectExitIntegrity(command) === 'masked') {
-          ctx.ui.notify(
-            `Skeg did not count this as ${classified.check.name} evidence: the exit status may be masked by shell operators. Run the check as a standalone command.`,
-            'warning',
-          );
-        } else {
-          await dispatch({
-            type: 'CHECK_RECORDED',
-            check: buildCommandCheck(
-              classified.check.name,
-              command,
-              !event.isError,
-              toolResultText(event.content),
-              classified.check.source,
-            ),
-          });
+      // wrapper 用 payload 分类；外层无法 unwrap 时，引号内命中不算证据
+      const classifyText = commandForCheckClassification(command);
+      const outerClassified = classifyCheckCommand(command, config);
+      const innerClassified = classifyCheckCommand(classifyText, config);
+      const wrapper = unwrapShellWrapper(command);
+      // 仅外层（引号内）命中且无法识别 wrapper → 不计入证据
+      if (outerClassified && !innerClassified && !wrapper) {
+        ctx.ui.notify(
+          `Skeg did not count this as ${outerClassified.name} evidence: check matched inside quotes of an unparsed wrapper. Run the check as a standalone command.`,
+          'warning',
+        );
+      } else {
+        const classified = classifyWithProviders(
+          classifyText,
+          config,
+          innerClassified,
+          providers.checks,
+          disabledProviderSpecs,
+        );
+        noteProviderErrors(ctx.ui, classified.errors);
+        if (classified.diagnostics.length > 0) {
+          notifyDiagnostics(ctx.ui, classified.diagnostics);
+        }
+        if (classified.check) {
+          if (inspectExitIntegrity(command) === 'masked') {
+            ctx.ui.notify(
+              `Skeg did not count this as ${classified.check.name} evidence: the exit status may be masked by shell operators. Run the check as a standalone command.`,
+              'warning',
+            );
+          } else {
+            await dispatch({
+              type: 'CHECK_RECORDED',
+              check: buildCommandCheck(
+                classified.check.name,
+                command,
+                !event.isError,
+                toolResultText(event.content),
+                classified.check.source,
+              ),
+            });
+          }
         }
       }
     }

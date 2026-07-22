@@ -1,7 +1,9 @@
 /**
  * 路径归一化与 glob 匹配（仅支持 * 与 **，满足风险检测需要）。
+ * mutation 边界使用 realpath，覆盖 symlink / Windows junction。
  */
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 /**
  * 将路径统一为正斜杠、去掉前导 ./。
@@ -66,7 +68,57 @@ export type AuthorizedPaths = {
 };
 
 /**
+ * 尽力解析真实路径；失败回退 resolve。
+ * @param path 绝对路径
+ * @returns 真实或解析后路径
+ */
+export function tryRealpath(path: string): string {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    try {
+      return realpathSync(path);
+    } catch {
+      return resolve(path);
+    }
+  }
+}
+
+/**
+ * 找到目标路径最近已存在祖先的 realpath。
+ * @param targetAbs 目标绝对路径
+ * @returns 祖先 realpath
+ */
+export function nearestExistingAncestorReal(targetAbs: string): string {
+  let current = resolve(targetAbs);
+  while (true) {
+    if (existsSync(current)) return tryRealpath(current);
+    const parent = dirname(current);
+    if (parent === current) return tryRealpath(current);
+    current = parent;
+  }
+}
+
+/**
+ * 判断 candidate 是否位于 workspace 根之下（realpath 语义）。
+ * @param workspaceReal workspace realpath
+ * @param candidateReal 候选 realpath
+ * @returns 是否子孙
+ */
+export function isRealDescendant(
+  workspaceReal: string,
+  candidateReal: string,
+): boolean {
+  const ws = tryRealpath(workspaceReal);
+  const cand = resolve(candidateReal);
+  if (normalizePath(ws) === normalizePath(cand)) return true;
+  const rel = relative(ws, cand);
+  return !(rel.startsWith(`..${sep}`) || rel === '..' || isAbsolute(rel));
+}
+
+/**
  * 统一 mutation 路径边界检查：workspace 外与 .git/** 写入一律 block。
+ * 使用 realpath（含 symlink / junction）防止字符串路径伪装。
  * @param cwd 工作区根
  * @param paths 候选写入路径
  * @returns 允许与阻止列表
@@ -77,6 +129,8 @@ export function authorizeMutationPaths(
 ): AuthorizedPaths {
   const allowed: string[] = [];
   const blocked: Array<{ path: string; reason: string }> = [];
+  const workspaceReal = tryRealpath(resolve(cwd));
+
   for (const input of paths) {
     const wp = toWorkspacePath(cwd, input);
     if (wp.outsideWorkspace) {
@@ -86,15 +140,56 @@ export function authorizeMutationPaths(
       });
       continue;
     }
-    const rel = wp.relativePath;
-    if (rel === '.git' || rel.startsWith('.git/')) {
+
+    const abs = isAbsolute(input)
+      ? resolve(input)
+      : resolve(workspaceReal, input);
+    const ancestorReal = nearestExistingAncestorReal(abs);
+    if (!isRealDescendant(workspaceReal, ancestorReal)) {
+      blocked.push({
+        path: input,
+        reason: 'resolved path escapes workspace',
+      });
+      continue;
+    }
+
+    // 真实路径落在 .git 下也拦截（含 symlink → .git）
+    const realRel = normalizePath(relative(workspaceReal, ancestorReal));
+    const lexicalRel = wp.relativePath;
+    if (
+      lexicalRel === '.git' ||
+      lexicalRel.startsWith('.git/') ||
+      realRel === '.git' ||
+      realRel.startsWith('.git/')
+    ) {
       blocked.push({
         path: input,
         reason: 'write to .git',
       });
       continue;
     }
-    allowed.push(rel);
+
+    // 目标自身若已存在，再校验最终 realpath
+    if (existsSync(abs)) {
+      const finalReal = tryRealpath(abs);
+      if (!isRealDescendant(workspaceReal, finalReal)) {
+        blocked.push({
+          path: input,
+          reason: 'resolved path escapes workspace',
+        });
+        continue;
+      }
+      const finalRel = normalizePath(relative(workspaceReal, finalReal));
+      if (finalRel === '.git' || finalRel.startsWith('.git/')) {
+        blocked.push({
+          path: input,
+          reason: 'write to .git',
+        });
+        continue;
+      }
+    }
+
+    allowed.push(lexicalRel);
   }
   return { allowed, blocked };
 }

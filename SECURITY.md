@@ -13,6 +13,7 @@ Skeg is a workflow control layer for coding agents. High-priority classes of bug
 - Path traversal that writes outside the workspace or into `.git/`
 - Silent config parse failure that disables protection policies
 - Project-configured Providers executing without explicit user trust
+- Run verification contracts weakened mid-run via config edits
 
 ## Provider trust boundary
 
@@ -28,13 +29,15 @@ User clones an unfamiliar repository
 → without trust: Skeg must NOT import the module
 ```
 
-Controls (v0.6.1+):
+Controls (v0.6.1+ / v1.0.1+):
 
 - Project config may only request Providers; it cannot auto-execute them
 - Workspace file Providers must live under `.skeg/providers/**` (no absolute paths, no `..`, no `file:` / `data:` URLs)
-- Package Providers resolve from the project `node_modules` (not Skeg's install location)
+- Workspace Providers must be **self-contained single files** (no relative `import` / `require` / dynamic `import()` of helpers)
+- Package Providers resolve from the project `node_modules` (not Skeg's install location); trust binds the resolved entry file content hash only (full package closure hashing is deferred)
 - Trust records live outside the repo (`~/.skeg/trust.json`, overridable via `SKEG_USER_DIR`)
 - Each trust record binds `repoRealPath + spec + contentHash`; content changes invalidate trust
+- Load uses `import(url?skeg=<contentHash>)` so reload picks up re-trusted content and narrows TOCTOU
 - Explicit commands: `/skeg trust`, `/skeg untrust`, `/skeg providers`, `/skeg providers reload`
 - Session freezes the loaded Provider set; config changes require explicit reload
 - Provider runtime errors are surfaced and disable that Provider for the session (not silently ignored)
@@ -43,8 +46,17 @@ Skeg does not sandbox Providers. Explicit trust + path limits + content hashing 
 
 ## Check exit-status integrity
 
-Bash check evidence uses the tool call's final exit status. Commands that may mask failure (`|| true`, `;`, pipes, background `&`, `exit 0`) are not recorded as check evidence.
+Bash check evidence uses the tool call's final exit status. Commands that may mask failure (`|| true`, `;`, pipes, background `&`, `exit 0`) are not recorded as check evidence. Nested wrappers (`bash -c`, `powershell -Command`, `cmd /c`) are unwrapped and their payloads inspected the same way.
+
+## Control plane
+
+Writes to `.skeg/config.json` and `.skeg/providers/**` always require confirm (`controlPlane` trigger). This cannot be disabled via project config.
+
+## Run contract
+
+`/skeg start` freezes required checks for the run. Mid-run config weakening does not reduce closure requirements; abandon and restart to adopt a new contract.
 
 ## Supported versions
 
-Security fixes land on the latest 0.x release line.
+Security fixes are released on the latest supported 1.x minor.
+Critical fixes may be backported to the previous minor when practical.

@@ -7,6 +7,11 @@ import {
   formatClosureFailure,
 } from './closure.ts';
 import { loadConfigWithDiagnostics } from './config.ts';
+import {
+  buildRunContract,
+  formatContractDriftHint,
+  hasContractDrift,
+} from './contract.ts';
 import { initSkeg } from './init.ts';
 import {
   formatProvidersStatus,
@@ -125,11 +130,13 @@ export async function handleCommand(
       }
       deps.clearSession();
       const baseline = captureBaseline(ctx.cwd);
+      const cfg = deps.getConfig();
       await deps.dispatch({
         type: 'RUN_STARTED',
         intent: text,
-        risk: deps.getConfig().defaultPolicy,
+        risk: cfg.defaultPolicy,
         baseline,
+        contract: buildRunContract(cfg),
       });
       const started = deps.getRun();
       const pre =
@@ -146,7 +153,14 @@ export async function handleCommand(
       if (!deps.getRun()) {
         deps.setRun(latestRunFromEntries(deps.getEntries()));
       }
-      ctx.ui.notify(formatStatus(deps.getRun()), 'info');
+      const loaded = reload();
+      notifyDiagnostics(ctx.ui, loaded.diagnostics);
+      const run = deps.getRun();
+      let text = formatStatus(run);
+      if (hasContractDrift(run, deps.getConfig())) {
+        text = `${text}\n${formatContractDriftHint()}`;
+      }
+      ctx.ui.notify(text, 'info');
       return;
     }
     case 'finish': {

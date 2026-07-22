@@ -1,7 +1,16 @@
 /**
- * paths：bash 写文件检测与路径提取。
+ * paths：bash 写文件检测与路径提取；realpath 边界。
  */
 import assert from 'node:assert/strict';
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
   authorizeMutationPaths,
@@ -81,20 +90,99 @@ describe('toWorkspacePath', () => {
 
 describe('authorizeMutationPaths', () => {
   it('allows workspace-relative writes', () => {
-    const r = authorizeMutationPaths('/proj', ['src/a.ts', './b.ts']);
-    assert.deepEqual(r.allowed, ['src/a.ts', 'b.ts']);
-    assert.equal(r.blocked.length, 0);
+    const cwd = mkdtempSync(join(tmpdir(), 'skeg-auth-ok-'));
+    try {
+      mkdirSync(join(cwd, 'src'), { recursive: true });
+      const r = authorizeMutationPaths(cwd, ['src/a.ts', './b.ts']);
+      assert.deepEqual(r.allowed, ['src/a.ts', 'b.ts']);
+      assert.equal(r.blocked.length, 0);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 
   it('blocks outside workspace and .git writes', () => {
-    const r = authorizeMutationPaths('/proj', [
-      '../outside.txt',
-      '.git/config',
-      'src/ok.ts',
-    ]);
-    assert.deepEqual(r.allowed, ['src/ok.ts']);
-    assert.equal(r.blocked.length, 2);
-    assert.ok(r.blocked.some((b) => b.path.includes('outside')));
-    assert.ok(r.blocked.some((b) => b.path.includes('.git')));
+    const cwd = mkdtempSync(join(tmpdir(), 'skeg-auth-block-'));
+    try {
+      mkdirSync(join(cwd, '.git'), { recursive: true });
+      mkdirSync(join(cwd, 'src'), { recursive: true });
+      const r = authorizeMutationPaths(cwd, [
+        '../outside.txt',
+        '.git/config',
+        'src/ok.ts',
+      ]);
+      assert.deepEqual(r.allowed, ['src/ok.ts']);
+      assert.equal(r.blocked.length, 2);
+      assert.ok(r.blocked.some((b) => b.path.includes('outside')));
+      assert.ok(r.blocked.some((b) => b.path.includes('.git')));
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('SymlinkBoundaryEscape', () => {
+  it('blocks symlink to outside workspace', { skip: process.platform === 'win32' ? 'posix symlink' : false }, () => {
+    const root = mkdtempSync(join(tmpdir(), 'skeg-sym-'));
+    const cwd = join(root, 'ws');
+    const outside = join(root, 'outside');
+    try {
+      mkdirSync(cwd, { recursive: true });
+      mkdirSync(outside, { recursive: true });
+      writeFileSync(join(outside, 'secret.txt'), 'x');
+      symlinkSync(outside, join(cwd, 'link'));
+      const r = authorizeMutationPaths(cwd, ['link/secret.txt']);
+      assert.equal(r.allowed.length, 0);
+      assert.ok(r.blocked.some((b) => /escapes workspace/i.test(b.reason)));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('blocks symlink to .git', { skip: process.platform === 'win32' ? 'posix symlink' : false }, () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'skeg-symgit-'));
+    try {
+      mkdirSync(join(cwd, '.git'), { recursive: true });
+      writeFileSync(join(cwd, '.git', 'config'), 'x');
+      symlinkSync(join(cwd, '.git'), join(cwd, 'gitlink'));
+      const r = authorizeMutationPaths(cwd, ['gitlink/config']);
+      assert.equal(r.allowed.length, 0);
+      assert.ok(r.blocked.length > 0);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('blocks Windows junction to outside', { skip: process.platform !== 'win32' ? 'windows junction' : false }, () => {
+    const root = mkdtempSync(join(tmpdir(), 'skeg-junc-'));
+    const cwd = join(root, 'ws');
+    const outside = join(root, 'outside');
+    try {
+      mkdirSync(cwd, { recursive: true });
+      mkdirSync(outside, { recursive: true });
+      writeFileSync(join(outside, 'secret.txt'), 'x');
+      symlinkSync(outside, join(cwd, 'link'), 'junction');
+      const r = authorizeMutationPaths(cwd, ['link/secret.txt']);
+      assert.equal(r.allowed.length, 0);
+      assert.ok(r.blocked.some((b) => /escapes workspace/i.test(b.reason)));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('blocks new file under symlink parent pointing outside', { skip: process.platform === 'win32' ? 'posix symlink' : false }, () => {
+    const root = mkdtempSync(join(tmpdir(), 'skeg-symnew-'));
+    const cwd = join(root, 'ws');
+    const outside = join(root, 'outside');
+    try {
+      mkdirSync(cwd, { recursive: true });
+      mkdirSync(outside, { recursive: true });
+      symlinkSync(outside, join(cwd, 'outlink'));
+      const r = authorizeMutationPaths(cwd, ['outlink/new-result.txt']);
+      assert.equal(r.allowed.length, 0);
+      assert.ok(r.blocked.some((b) => /escapes workspace/i.test(b.reason)));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

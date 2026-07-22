@@ -1,6 +1,8 @@
 /**
  * Closure evaluator：统一判断 run 是否可标记为 done。
+ * requiredChecks 只在当前 revision 生效；signal 源必须每次 settle 重放。
  */
+import { requiredChecksFromContract } from './contract.ts';
 import { currentChecks } from './run.ts';
 import type { Gate, RiskSignal, RunState, SkegConfig, Waiver } from './types.ts';
 
@@ -24,9 +26,10 @@ export function evaluateClosure(
   run: RunState,
   config: SkegConfig,
 ): ClosureEvaluation {
-  const requiredFromConfig =
-    run.risk === 'guarded' ? config.checks.guarded : config.checks.default;
+  // 契约优先：启动时冻结的 checks 不被运行中配置弱化
+  const requiredFromConfig = requiredChecksFromContract(run, config);
 
+  // requiredChecks 只在当前 revision 生效；prove 等 signal 源须在 settle 时重放
   const requiredFromSignals = run.signals
     .filter((signal) => signal.revision === run.revision)
     .flatMap((signal) => signal.requiredChecks ?? []);

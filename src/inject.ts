@@ -5,6 +5,7 @@
 /** 注入硬预算（tokens）；v0.5 与 record 相关性加载同版收至 300 */
 export const INJECT_TOKEN_BUDGET = 300;
 import { loadProjectSummary } from './config.ts';
+import { requiredChecksFromContract } from './contract.ts';
 import {
   selectRecordsWithProviders,
   type NamedProvider,
@@ -85,8 +86,7 @@ export function buildInjectContext(
 
   const fresh = currentChecks(run);
   const pending = fresh.filter((c) => !c.passed).map((c) => c.name);
-  const expected =
-    run.risk === 'guarded' ? config.checks.guarded : config.checks.default;
+  const expected = requiredChecksFromContract(run, config);
   const signalRequired = run.signals
     .filter((s) => s.revision === run.revision)
     .flatMap((s) => s.requiredChecks ?? []);

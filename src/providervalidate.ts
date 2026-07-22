@@ -17,6 +17,7 @@ const TRIGGER_IDS = new Set<TriggerId>([
   'publicApiChange',
   'authChange',
   'dangerousCommand',
+  'controlPlane',
 ]);
 
 const MAX_HITS = 32;

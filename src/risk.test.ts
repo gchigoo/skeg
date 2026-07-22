@@ -8,9 +8,43 @@ import {
   findExportSymbolChanges,
   findSensitiveKeywords,
   gateAcknowledgementKey,
+  isControlPlanePath,
+  requiresGate,
   scanSensitiveKeywords,
   scanToolCall,
 } from './risk.ts';
+
+describe('controlPlane', () => {
+  it('flags .skeg/config.json and providers paths', () => {
+    assert.equal(isControlPlanePath('.skeg/config.json'), true);
+    assert.equal(isControlPlanePath('.skeg/providers/foo.mjs'), true);
+    assert.equal(isControlPlanePath('src/a.ts'), false);
+    const hits = detectPathRisks('.skeg/config.json', DEFAULT_CONFIG);
+    assert.ok(hits.some((h) => h.trigger === 'controlPlane'));
+    assert.equal(requiresGate('controlPlane', {
+      ...DEFAULT_CONFIG,
+      policies: {
+        ...DEFAULT_CONFIG.policies,
+        controlPlane: { risk: 'lean', action: 'ignore' },
+      },
+    }), true);
+  });
+
+  it('scanToolCall flags write to control plane', () => {
+    const hits = scanToolCall(
+      'write',
+      { path: '.skeg/config.json' },
+      DEFAULT_CONFIG,
+    );
+    assert.ok(hits.some((h) => h.trigger === 'controlPlane'));
+    const bashHits = scanToolCall(
+      'bash',
+      { command: 'echo x > .skeg/config.json' },
+      DEFAULT_CONFIG,
+    );
+    assert.ok(bashHits.some((h) => h.trigger === 'controlPlane'));
+  });
+});
 
 describe('detectPathRisks', () => {
   it('flags migration paths deterministically', () => {

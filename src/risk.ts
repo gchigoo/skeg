@@ -1,7 +1,12 @@
 /**
  * 确定性风险检测：tool_call hook 的权威兜底层。
  */
-import { extractPathsFromCommand, matchesAny, normalizePath } from './paths.ts';
+import {
+  extractPathsFromCommand,
+  matchesAny,
+  normalizePath,
+  pathMatchCandidates,
+} from './paths.ts';
 import type { RiskHit, SkegConfig, TriggerId } from './types.ts';
 
 const DANGEROUS_PATTERNS = [
@@ -37,6 +42,21 @@ export function pathsFromToolCall(
 }
 
 /**
+ * 判断是否为 Skeg 控制面路径（硬编码，不可配置关闭）。
+ * @param path 归一化路径
+ * @returns 是否控制面
+ */
+export function isControlPlanePath(path: string): boolean {
+  const candidates = pathMatchCandidates(normalizePath(path));
+  return candidates.some(
+    (p) =>
+      p === '.skeg/config.json' ||
+      p === '.skeg/providers' ||
+      p.startsWith('.skeg/providers/'),
+  );
+}
+
+/**
  * 检测单条路径命中的风险 trigger。
  * @param path 文件路径
  * @param config 项目配置
@@ -45,6 +65,15 @@ export function pathsFromToolCall(
 export function detectPathRisks(path: string, config: SkegConfig): RiskHit[] {
   const hits: RiskHit[] = [];
   const normalized = normalizePath(path);
+
+  if (isControlPlanePath(normalized)) {
+    hits.push({
+      trigger: 'controlPlane',
+      strength: 'deterministic',
+      path: normalized,
+      reason: `Skeg control-plane path requires confirm: ${normalized}`,
+    });
+  }
 
   if (matchesAny(normalized, config.protectedPaths)) {
     hits.push({
@@ -188,6 +217,8 @@ export function requiresGate(
   trigger: TriggerId,
   config?: SkegConfig,
 ): boolean {
+  // 控制面恒 confirm，无视项目 policies
+  if (trigger === 'controlPlane') return true;
   const action = config?.policies?.[trigger]?.action;
   if (!action) return true;
   return action === 'confirm' || action === 'block';
@@ -203,6 +234,8 @@ export function requiresBlock(
   trigger: TriggerId,
   config?: SkegConfig,
 ): boolean {
+  // 控制面只 confirm，不硬 block（允许用户显式放行）
+  if (trigger === 'controlPlane') return false;
   return config?.policies?.[trigger]?.action === 'block';
 }
 

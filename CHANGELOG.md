@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0.1 — 2026-07-22
+
+Contract Integrity：冻结 Run 验证契约，封死路径/信任/假证据缺口。
+
+### Added
+- `RunContract`：`/skeg start` 冻结 `defaultChecks` / `guardedChecks` 与配置 hash；closure / inject 优先用契约基线
+- `controlPlane` trigger：硬编码 confirm `.skeg/config.json` 与 `.skeg/providers/**`（配置不可关闭）
+- mutation / Provider 路径改用 `realpath`（含 Windows junction）
+- workspace Provider 必须自包含单文件；`import(?skeg=<hash>)` 绑定内容并修复 reload 缓存
+- shell wrapper unwrap：`bash/sh/zsh -c`、`powershell -Command`、`cmd /c` 递归退出码完整性检查
+- 多维预算：`extensions` 总 LOC、`INJECT_TOKEN_BUDGET`、命令面、`SkegEvent` 变体数
+
+### Fixed
+- ConfigDriftBypass：运行中弱化 `checks.guarded` 不再能让 finish 假绿
+- NestedShellFalseEvidence：`bash -c 'pnpm test path || true'` 不再记为 targeted-test 证据
+- ProviderReloadStale：重新 trust 后 reload 加载新模块
+- dispatch 队列异常不再毒化后续状态更新
+- SECURITY.md 支持线从 0.x 更正为 1.x
+
 ## 1.0.0 — 2026-07-22
 
 Stable Surface。默认只注册 `/skeg`；清理 legacy 兼容面。

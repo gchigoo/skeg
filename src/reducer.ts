@@ -1,10 +1,10 @@
 /**
  * RunState 纯函数 reducer：所有状态变化经此产生。
  */
-import { EMPTY_BASELINE, SCHEMA_VERSION, type CheckRun, type Gate, type RiskHit, type RiskLevel, type RiskSignal, type RunState, type Waiver, type WorkspaceBaseline } from './types.ts';
+import { EMPTY_BASELINE, SCHEMA_VERSION, type CheckRun, type Gate, type RiskHit, type RiskLevel, type RiskSignal, type RunContract, type RunState, type Waiver, type WorkspaceBaseline } from './types.ts';
 
 export type SkegEvent =
-  | { type: 'RUN_STARTED'; intent: string; risk: RiskLevel; baseline?: WorkspaceBaseline; id?: string; now?: string }
+  | { type: 'RUN_STARTED'; intent: string; risk: RiskLevel; baseline?: WorkspaceBaseline; contract?: RunContract; id?: string; now?: string }
   | { type: 'MUTATION_COMMITTED'; paths: string[]; now?: string }
   | { type: 'CHECK_RECORDED'; check: Omit<CheckRun, 'id' | 'revision' | 'observedAt'> & Partial<Pick<CheckRun, 'id' | 'revision' | 'observedAt'>>; now?: string }
   | { type: 'SIGNAL_RAISED'; signal: Omit<RiskSignal, 'id' | 'revision'> & Partial<Pick<RiskSignal, 'id' | 'revision'>>; now?: string }
@@ -59,6 +59,7 @@ export function reduce(run: RunState | null, event: SkegEvent): RunState {
       gates: [],
       waivers: [],
       baseline: event.baseline ?? { ...EMPTY_BASELINE, capturedAt: now },
+      contract: event.contract,
       createdAt: now,
       updatedAt: now,
     };

@@ -47,6 +47,35 @@ describe('parseCommands (via loadConfigWithDiagnostics)', () => {
   });
 });
 
+describe('controlPlane policy', () => {
+  it('ignores user override of policies.controlPlane', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'skeg-cfg-cp-'));
+    try {
+      mkdirSync(join(cwd, '.skeg'), { recursive: true });
+      writeFileSync(
+        join(cwd, '.skeg/config.json'),
+        JSON.stringify({
+          policies: {
+            controlPlane: { risk: 'lean', action: 'ignore' },
+          },
+        }),
+        'utf8',
+      );
+      const result = loadConfigWithDiagnostics(cwd);
+      assert.equal(result.config.policies.controlPlane.action, 'confirm');
+      assert.ok(
+        result.diagnostics.some(
+          (d) =>
+            d.path === 'policies.controlPlane' &&
+            /hard-coded|ignored/i.test(d.message),
+        ),
+      );
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('riskTriggers (via loadConfigWithDiagnostics)', () => {
   it('warns and does not map riskTriggers in v1.0', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'skeg-cfg-rt-'));

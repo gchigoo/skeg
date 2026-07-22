@@ -26,9 +26,9 @@ const BARE_TEST_RE = new RegExp(
   'i',
 );
 
-/** 带文件/路径参数的 targeted test */
+/** 带文件/路径参数的 targeted test（锚定命令边界，禁止匹配引号内 payload） */
 const TARGETED_TEST_RE = new RegExp(
-  String.raw`(?:npm\s+test|npm\s+run\s+test(?:s)?|pnpm\s+test|pnpm\s+run\s+test(?:s)?|yarn\s+test|bun\s+test|${NODE_TEST_RUNNER}|vitest(?:\s+run)?|jest|pytest|go\s+test|cargo\s+test|deno\s+test)\s+\S+`,
+  String.raw`(?:^|[;&|]\s*)(?:npm\s+test|npm\s+run\s+test(?:s)?|pnpm\s+test|pnpm\s+run\s+test(?:s)?|yarn\s+test|bun\s+test|${NODE_TEST_RUNNER}|vitest(?:\s+run)?|jest|pytest|go\s+test|cargo\s+test|deno\s+test)\s+\S+`,
   'i',
 );
 

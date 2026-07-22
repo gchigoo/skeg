@@ -119,6 +119,66 @@ export default { checks: { classify() { return null; } } };
     assert.equal(ok.diagnostics.filter((d) => d.level === 'error').length, 0);
   });
 
+  it('reloads new provider content after re-trust (ProviderReloadStale)', async () => {
+    const file = join(cwd, '.skeg', 'providers', 'reload.mjs');
+    const spec = '.skeg/providers/reload.mjs';
+    writeFileSync(
+      file,
+      `export default {
+  apiVersion: 1,
+  id: 'reload',
+  capabilities: ['check'],
+  checks: {
+    classify(command) {
+      if (command === 'skeg-reload-probe') {
+        return { kind: 'command', name: 'reload-v1' };
+      }
+      return null;
+    }
+  }
+};
+`,
+      'utf8',
+    );
+    assert.equal(trustProvider(cwd, spec).ok, true);
+    const first = await loadProviders(cwd, {
+      ...DEFAULT_CONFIG,
+      providers: [entry(spec, { id: 'reload' })],
+    });
+    assert.equal(
+      first.checks[0]?.impl.classify('skeg-reload-probe', DEFAULT_CONFIG)?.name,
+      'reload-v1',
+    );
+
+    writeFileSync(
+      file,
+      `export default {
+  apiVersion: 1,
+  id: 'reload',
+  capabilities: ['check'],
+  checks: {
+    classify(command) {
+      if (command === 'skeg-reload-probe') {
+        return { kind: 'command', name: 'reload-v2' };
+      }
+      return null;
+    }
+  }
+};
+`,
+      'utf8',
+    );
+    assert.equal(trustProvider(cwd, spec).ok, true);
+    const second = await loadProviders(cwd, {
+      ...DEFAULT_CONFIG,
+      providers: [entry(spec, { id: 'reload' })],
+    });
+    assert.equal(
+      second.checks[0]?.impl.classify('skeg-reload-probe', DEFAULT_CONFIG)?.name,
+      'reload-v2',
+    );
+  });
+
   it('records requiredPolicyFailures when required provider untrusted', async () => {
     writeFileSync(
       join(cwd, '.skeg', 'providers', 'req.mjs'),

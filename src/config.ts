@@ -26,6 +26,7 @@ const TRIGGER_IDS: TriggerId[] = [
   'dependencyChange',
   'publicApiChange',
   'authChange',
+  'controlPlane',
 ];
 
 /** 默认 policies：全部 confirm + guarded */
@@ -36,6 +37,8 @@ export const DEFAULT_POLICIES: Record<TriggerId, TriggerPolicy> = {
   dependencyChange: { risk: 'guarded', action: 'confirm' },
   publicApiChange: { risk: 'guarded', action: 'confirm' },
   authChange: { risk: 'guarded', action: 'confirm' },
+  /** 控制面：硬编码 confirm，用户覆盖被忽略 */
+  controlPlane: { risk: 'guarded', action: 'confirm' },
 };
 
 /** 默认配置，与 templates/config.json 保持一致。 */
@@ -346,6 +349,16 @@ function resolvePolicies(
     for (const id of TRIGGER_IDS) {
       const p = policies[id];
       if (!p || typeof p !== 'object') continue;
+      // controlPlane 不可通过项目配置关闭或降级
+      if (id === 'controlPlane') {
+        diagnostics.push({
+          level: 'warning',
+          path: 'policies.controlPlane',
+          message:
+            'policies.controlPlane is hard-coded to confirm; override ignored',
+        });
+        continue;
+      }
       const action = p.action;
       const risk = p.risk;
       if (action && !isPolicyAction(action)) {

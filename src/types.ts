@@ -14,7 +14,18 @@ export type TriggerId =
   | 'protectedPaths'
   | 'publicApiChange'
   | 'authChange'
-  | 'dangerousCommand';
+  | 'dangerousCommand'
+  | 'controlPlane';
+
+/** 启动时冻结的验证契约（run 内不可被配置弱化） */
+export type RunContract = {
+  schemaVersion: 1;
+  configHash: string;
+  providerSetHash: string;
+  defaultChecks: string[];
+  guardedChecks: string[];
+  createdAt: string;
+};
 
 export type DetectionStrength = 'deterministic' | 'semi' | 'weak';
 
@@ -111,6 +122,8 @@ export type RunState = {
   preExistingFiles?: string[];
   /** 最近一次工作区滚动指纹（可选；旧 session 无此字段） */
   observation?: WorkspaceObservation;
+  /** 启动时冻结的验证契约（旧 session 可缺省，回退现配置） */
+  contract?: RunContract;
   createdAt: string;
   updatedAt: string;
 };
