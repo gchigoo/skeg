@@ -16,13 +16,17 @@ import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
-const SKEG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const cwdFlag = args.indexOf('--cwd');
+const DIST_MODE = args.includes('--dist');
 const SANDBOX =
   cwdFlag >= 0
     ? resolve(args[cwdFlag + 1])
-    : join(tmpdir(), 'skeg-pi-smoke');
+    : join(tmpdir(), DIST_MODE ? 'skeg-pi-smoke-dist' : 'skeg-pi-smoke');
+
+/** 源码模式指向仓库；--dist 模式指向沙箱内安装的 tarball 包 */
+let SKEG_ROOT = REPO_ROOT;
 
 const TIMEOUT_MS = 180_000;
 const MODEL = process.env.SKEG_SMOKE_MODEL || 'deepseek/deepseek-v4-flash';
@@ -30,10 +34,73 @@ const MODEL = process.env.SKEG_SMOKE_MODEL || 'deepseek/deepseek-v4-flash';
 /** @typedef {{ type: string, [k: string]: unknown }} RpcMsg */
 
 /**
+ * --dist：npm pack 仓库并安装到沙箱，Pi packages 指向安装路径。
+ * @param {string} root
+ * @returns {string} 安装后的 skeg 包根目录
+ */
+function installSkegFromTarball(root) {
+  mkdirSync(root, { recursive: true });
+  if (!existsSync(join(root, 'package.json'))) {
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({
+        name: 'skeg-smoke-dist',
+        version: '0.0.0',
+        private: true,
+      }),
+    );
+  }
+  const npmCli = join(
+    dirname(process.execPath),
+    'node_modules',
+    'npm',
+    'bin',
+    'npm-cli.js',
+  );
+  const packOut = execFileSync(process.execPath, [npmCli, 'pack', '--json'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const trimmed = packOut.trim();
+  const jsonStart = Math.min(
+    ...[trimmed.indexOf('['), trimmed.indexOf('{')].filter((i) => i >= 0),
+  );
+  const parsed = JSON.parse(
+    Number.isFinite(jsonStart) && jsonStart >= 0
+      ? trimmed.slice(jsonStart)
+      : trimmed,
+  );
+  const filename = Array.isArray(parsed) ? parsed[0].filename : parsed.filename;
+  const tarball = join(REPO_ROOT, filename);
+  try {
+    execFileSync(
+      process.execPath,
+      [npmCli, 'install', '--no-save', '--no-package-lock', tarball],
+      { cwd: root, stdio: 'inherit' },
+    );
+  } finally {
+    try {
+      unlinkSync(tarball);
+    } catch {
+      /* ignore */
+    }
+  }
+  const installed = join(root, 'node_modules', '@gchigoo', 'skeg');
+  if (!existsSync(join(installed, 'extensions', 'core.ts'))) {
+    throw new Error(`dist install missing extensions/core.ts under ${installed}`);
+  }
+  return installed;
+}
+
+/**
  * 确保沙箱 fixture 存在。
  * @param {string} root
  */
 function ensureSandbox(root) {
+  if (DIST_MODE) {
+    SKEG_ROOT = installSkegFromTarball(root);
+  }
   mkdirSync(join(root, 'src', 'auth'), { recursive: true });
   mkdirSync(join(root, 'migrations'), { recursive: true });
   if (!existsSync(join(root, 'package.json'))) {
@@ -394,8 +461,11 @@ function check(name, ok, detail) {
 async function main() {
   ensureSandbox(SANDBOX);
   console.log(`Sandbox: ${SANDBOX}`);
-  console.log(`Skeg:    ${SKEG_ROOT}`);
+  console.log(`Skeg:    ${SKEG_ROOT}${DIST_MODE ? ' (dist tarball)' : ''}`);
   console.log(`Model:   ${MODEL}`);
+  if (DIST_MODE) {
+    console.log('Mode:    --dist (Pi loads skeg from sandbox node_modules)');
+  }
 
   const pi = new PiRpc(SANDBOX);
   await pi.start();

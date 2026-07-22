@@ -1,0 +1,18 @@
+{
+  "name": "skeg-provider-postgres",
+  "version": "0.1.0",
+  "description": "Skeg PolicyProvider for PostgreSQL migrations and destructive SQL",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "skeg-provider",
+    "postgres"
+  ]
+}

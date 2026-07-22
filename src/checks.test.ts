@@ -97,7 +97,7 @@ describe('classifyCheckCommand', () => {
       checks: {
         ...DEFAULT_CONFIG.checks,
         commands: {
-          'unit-smoke': 'make smoke',
+          'unit-smoke': '/^make\\s+smoke(?:\\s|$)/i',
           'custom-lint': '/biome\\s+ci/i',
         },
       },
@@ -110,6 +110,19 @@ describe('classifyCheckCommand', () => {
       kind: 'command',
       name: 'custom-lint',
     });
+  });
+
+  it('rejects plain substring matchers at match time', () => {
+    const config: SkegConfig = {
+      ...DEFAULT_CONFIG,
+      checks: {
+        ...DEFAULT_CONFIG.checks,
+        commands: {
+          'unit-smoke': 'make smoke',
+        },
+      },
+    };
+    assert.equal(classifyCheckCommand('make smoke', config), null);
   });
 
   it('rejects false-positive substrings after /init detection', () => {

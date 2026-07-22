@@ -5,7 +5,7 @@ import type { CheckMatcher, RiskLevel, SkegConfig } from './types.ts';
 
 export type CheckSpec = {
   id: string;
-  /** 字符串（子串或 /regex/）或结构化 CheckMatcher */
+  /** 字符串仅允许 /regex/；或结构化 CheckMatcher */
   match: string | CheckMatcher;
   /** 适用风险级别；缺省两端都适用 */
   risk?: RiskLevel | 'both';
@@ -83,19 +83,17 @@ export function matchCheckPattern(
 ): boolean {
   if (typeof match === 'string') {
     if (!match) return false;
-    if (match.startsWith('/') && match.lastIndexOf('/') > 0) {
-      const last = match.lastIndexOf('/');
-      const body = match.slice(1, last);
-      const flags = match.slice(last + 1);
-      if (!isSafeRegex(body, flags)) return false;
-      try {
-        return new RegExp(body, flags).test(command);
-      } catch {
-        return false;
-      }
+    // v0.7+：普通子串 matcher 已拒绝；仅 /regex/ 字符串生效
+    if (!(match.startsWith('/') && match.lastIndexOf('/') > 0)) return false;
+    const last = match.lastIndexOf('/');
+    const body = match.slice(1, last);
+    const flags = match.slice(last + 1);
+    if (!isSafeRegex(body, flags)) return false;
+    try {
+      return new RegExp(body, flags).test(command);
+    } catch {
+      return false;
     }
-    // 弃用的子串语义（配置加载时已 warning）
-    return command.includes(match);
   }
 
   if (match.kind === 'package-script') {

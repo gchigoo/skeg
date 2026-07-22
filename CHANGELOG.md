@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.0 — 2026-07-22
+
+Ecosystem Proof.
+
+### Added
+- `examples/providers/`：`skeg-provider-postgres` / `monorepo` / `rust`（只依赖公共契约，运行时零依赖 `.mjs`）
+- `dogfood/dist-e2e.mjs` + `npm run dogfood:dist`：`npm pack` tarball → 干净沙箱安装 Provider → trust → 第三方 policy/check → finish closure
+- `npm run check:providers`：对示例 Provider 跑 `skeg-provider-test` conformance
+- `pi-smoke --dist`：Pi 从沙箱 `node_modules` 装载安装后的 skeg tarball（手动，需模型 API）
+- 预算脚本检查示例 Provider 不得 import 内部 `src/*`
+
+### Changed
+- **Breaking**：普通子串 CheckMatcher 拒绝（`error` 诊断并忽略该 matcher）；仅 `/regex/` 或结构化 matcher
+- `CHECK_RECORDED` 保留 `source`，`/skeg status` 能展示第三方 check provenance
+- `verify` 纳入 `check:providers`；`verify:dist` 纳入 `dogfood:dist`
+
 ## 0.6.2 — 2026-07-22
 
 Provider API Hardening.

@@ -99,6 +99,7 @@ export function reduce(run: RunState | null, event: SkegEvent): RunState {
         exitCode: event.check.exitCode,
         evidence: event.check.evidence,
         observedAt: event.check.observedAt ?? now,
+        source: event.check.source,
       };
       // 同名同 revision 覆盖；不同 revision 保留历史
       const rest = run.checks.filter(

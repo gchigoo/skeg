@@ -1,0 +1,19 @@
+{
+  "name": "skeg-provider-rust",
+  "version": "0.1.0",
+  "description": "Skeg CheckProvider for cargo test/clippy/fmt",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "skeg-provider",
+    "rust",
+    "cargo"
+  ]
+}

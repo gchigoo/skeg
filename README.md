@@ -48,11 +48,13 @@ Prompt template:
 
 ## Status
 
-**v0.6.2** — Provider API Hardening：`@gchigoo/skeg/provider-api`、required/priority、输出校验与 provenance、确定性合并；在 v0.6.1 Trusted Evidence 之上稳定扩展契约。
+**v0.7.0** — Ecosystem Proof：三个只依赖公共 API 的真实 Provider 示例、`npm pack` 干净沙箱端到端、普通子串 CheckMatcher 拒绝。
 
 ```bash
 npm run verify
+npm run verify:dist   # verify + pack dry-run + dogfood/dist-e2e
 npm run smoke
+npm run smoke -- --dist   # 手动：Pi 从沙箱 node_modules 装载 tarball（需模型 API）
 npm run dogfood:adversarial
 npm run dogfood:runtime
 npm run dogfood:host -- --cwd . --profile skeg
@@ -86,7 +88,9 @@ npm run dogfood:host -- --cwd . --profile skeg
 }
 ```
 
-Provider module (public API only):
+### Writing a provider
+
+只依赖 `@gchigoo/skeg/provider-api`，禁止 `src/*` 内部导入。示例见 `examples/providers/`（postgres / monorepo / rust；零运行时依赖的 `.mjs`）。
 
 ```js
 import { defineProvider } from '@gchigoo/skeg/provider-api';
@@ -105,6 +109,22 @@ export default defineProvider({
 
 ```bash
 npx skeg-provider-test .skeg/providers/postgres.mjs
+# 或仓库内示例：
+npm run check:providers
+```
+
+### Matcher migration (v0.7)
+
+普通子串 matcher 已拒绝（配置诊断 `error` 并忽略该条目）。请改用 `/regex/` 或结构化 `CheckMatcher`：
+
+```json
+{
+  "commands": {
+    "unit-smoke": "/^make\\s+smoke(?:\\s|$)/i",
+    "test": { "kind": "package-script", "script": "test" },
+    "cargo-test": { "kind": "argv", "executable": "cargo", "args": ["test"] }
+  }
+}
 ```
 
 - 成功修改工作区 → `revision+1`，旧 checks 变 stale；`/finish` 只接受当前 revision 证据

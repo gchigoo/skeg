@@ -111,6 +111,40 @@ function checkLoc(root) {
   return ok;
 }
 
+/**
+ * 示例 Provider 只能依赖公共 provider-api，禁止内部 src/* 导入。
+ * @param {string} root 根目录
+ * @returns {boolean}
+ */
+function checkProviderApiBoundary(root) {
+  const providersRoot = join(root, 'examples', 'providers');
+  let files;
+  try {
+    files = walk(providersRoot).filter((f) => /\.(mjs|js|ts|cts|mts)$/.test(f));
+  } catch {
+    console.log('SKIP  examples/providers (missing)');
+    return true;
+  }
+
+  let ok = true;
+  // 禁止：相对/绝对路径指向 src、裸 import 内部模块；允许 JSDoc 中的 @gchigoo/skeg/provider-api
+  const forbidden =
+    /(?:from\s+|import\s*\(|import\s+[^;]*?['"])(?:\.?\.?\/)*(?:src\/|@gchigoo\/skeg\/(?!provider-api)[^'"]+)/;
+
+  for (const rel of files) {
+    const full = join(providersRoot, rel);
+    const text = readFileSync(full, 'utf8');
+    const display = `examples/providers/${rel}`;
+    if (forbidden.test(text)) {
+      console.log(`FAIL  provider API boundary  ${display}`);
+      ok = false;
+    } else {
+      console.log(`OK    provider API boundary  ${display}`);
+    }
+  }
+  return ok;
+}
+
 function main() {
   const args = process.argv.slice(2);
   let failed = false;
@@ -142,6 +176,7 @@ function main() {
         }
       }
       if (!checkLoc(root)) failed = true;
+      if (!checkProviderApiBoundary(root)) failed = true;
     }
   }
 

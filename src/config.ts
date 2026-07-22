@@ -213,16 +213,17 @@ function parseCommands(
   const out: Record<string, string | CheckMatcher> = {};
   for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
     if (typeof value === 'string') {
-      out[name] = value;
-      // 普通子串 matcher 弃用；/regex/ 字符串仍可接受
+      // v0.7+：普通子串 matcher 拒绝（error 诊断并忽略该条目）
       if (!(value.startsWith('/') && value.lastIndexOf('/') > 0)) {
         diagnostics.push({
-          level: 'warning',
+          level: 'error',
           path: `checks.commands.${name}`,
           message:
-            'Plain substring matchers are deprecated; use /regex/ or structured CheckMatcher (package-script|argv|regex)',
+            'Plain substring matchers are not allowed; use /regex/ or structured CheckMatcher (package-script|argv|regex)',
         });
+        continue;
       }
+      out[name] = value;
     } else if (isCheckMatcher(value)) {
       out[name] = value;
       if (value.kind === 'regex') {
