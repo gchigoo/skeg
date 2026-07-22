@@ -17,7 +17,7 @@ const BUDGETS = [
 ];
 
 const LOC_BUDGETS = [
-  { file: 'extensions/core.ts', maxLoc: 500 },
+  { file: 'extensions/core.ts', maxLoc: 600 },
 ];
 
 const IGNORED_DIRS = new Set(['node_modules', '.git', 'archive']);

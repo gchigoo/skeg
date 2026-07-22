@@ -16,6 +16,7 @@ Provider API Hardening.
 - required PolicyProvider 加载/运行失败 → mutation block（provider-error）
 - 普通字符串子串 CheckMatcher 配置加载时弃用 warning；正则限制长度与 flags（`imsu`）
 - `/skeg status` 展示 provider 来源
+- `extensions/core.ts` LOC 预算 500 → 600（保留“逻辑进 src/”约束，给 Pi 桥接层留接线余量）
 
 ## 0.6.1 — 2026-07-22
 
