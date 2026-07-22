@@ -472,10 +472,10 @@ function main() {
     '## Manual follow-up (Pi)',
     '',
     'Re-run 2 lean + 1 risk scenario inside a real Pi session to confirm UX:',
-    '- `/init` → `/run` → edit → `/status` → `/finish`',
+    '- `/skeg init` → `/skeg start` → edit → `/skeg status` → `/skeg finish`',
     '- risk edit must show gate confirm UI',
-    '- bash `pnpm test <file>` should appear in `/status` Checks',
-    '- `/record decision ...` then next agent turn should inject Records index',
+    '- bash `pnpm test <file>` should appear in `/skeg status` Checks',
+    '- `/skeg record decision ...` then next agent turn should inject Records index',
     '',
   );
 

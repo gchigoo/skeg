@@ -391,6 +391,9 @@ async function main() {
         `import { readFileSync, writeFileSync } from 'node:fs';
 const COUNTER = ${JSON.stringify(counterPath)};
 export default {
+  apiVersion: 1,
+  id: 'special',
+  capabilities: ['check'],
   checks: {
     classify(command) {
       let n = 0;

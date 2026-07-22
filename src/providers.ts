@@ -42,13 +42,6 @@ export type {
   RecordSelector,
 } from './provider-api.ts';
 
-/** 旧版无 apiVersion 的模块形状 */
-export type SkegProviderModule = {
-  policies?: PolicyProvider;
-  checks?: CheckProvider;
-  records?: RecordSelector;
-};
-
 /** 带配置身份的已加载 Provider */
 export type NamedProvider<T> = {
   id: string;
@@ -95,7 +88,7 @@ const EMPTY: LoadedProviders = {
 };
 
 /**
- * 解析模块为 V1 或旧格式。
+ * 解析模块为 Provider API v1（无 apiVersion 拒绝加载）。
  * @param mod 动态 import 结果
  * @param fallbackId 配置 id
  * @returns 归一后的 bundle 与诊断
@@ -116,83 +109,72 @@ function normalizeBundle(
   const root = (mod.default ?? mod) as Record<string, unknown>;
 
   if (
-    root &&
-    typeof root === 'object' &&
-    'apiVersion' in root &&
-    root.apiVersion !== undefined
+    !root ||
+    typeof root !== 'object' ||
+    !('apiVersion' in root) ||
+    root.apiVersion === undefined
   ) {
-    if (root.apiVersion !== SKEG_PROVIDER_API_VERSION) {
-      diagnostics.push({
-        level: 'error',
-        path,
-        message: `Unsupported provider apiVersion ${String(root.apiVersion)}; expected ${SKEG_PROVIDER_API_VERSION}`,
-      });
-      return { id: fallbackId, capabilities: [], diagnostics };
-    }
-    const v1 = root as unknown as SkegProviderV1;
-    const id =
-      typeof v1.id === 'string' && v1.id.trim() ? v1.id.trim() : fallbackId;
-    const capabilities = Array.isArray(v1.capabilities)
-      ? v1.capabilities.filter(
-          (c): c is ProviderCapability =>
-            c === 'policy' || c === 'check' || c === 'record',
-        )
-      : [];
-    const policies =
-      v1.policies && typeof v1.policies.inspect === 'function'
-        ? v1.policies
-        : undefined;
-    const checks =
-      v1.checks && typeof v1.checks.classify === 'function'
-        ? v1.checks
-        : undefined;
-    const records =
-      v1.records && typeof v1.records.select === 'function'
-        ? v1.records
-        : undefined;
-
-    if (capabilities.includes('policy') && !policies) {
-      diagnostics.push({
-        level: 'warning',
-        path,
-        message: `Provider ${id} lists policy capability but exports no policies`,
-      });
-    }
-    if (capabilities.includes('check') && !checks) {
-      diagnostics.push({
-        level: 'warning',
-        path,
-        message: `Provider ${id} lists check capability but exports no checks`,
-      });
-    }
-    if (capabilities.includes('record') && !records) {
-      diagnostics.push({
-        level: 'warning',
-        path,
-        message: `Provider ${id} lists record capability but exports no records`,
-      });
-    }
-    return { id, capabilities, policies, checks, records, diagnostics };
+    diagnostics.push({
+      level: 'error',
+      path,
+      message:
+        'Provider must export apiVersion: 1 via defineProvider (legacy modules removed in v1.0)',
+    });
+    return { id: fallbackId, capabilities: [], diagnostics };
   }
 
-  const legacy = root as SkegProviderModule;
-  return {
-    id: fallbackId,
-    capabilities: null,
-    policies:
-      legacy.policies && typeof legacy.policies.inspect === 'function'
-        ? legacy.policies
-        : undefined,
-    checks:
-      legacy.checks && typeof legacy.checks.classify === 'function'
-        ? legacy.checks
-        : undefined,
-    records:
-      legacy.records && typeof legacy.records.select === 'function'
-        ? legacy.records
-        : undefined,
-    diagnostics,
-  };
+  if (root.apiVersion !== SKEG_PROVIDER_API_VERSION) {
+    diagnostics.push({
+      level: 'error',
+      path,
+      message: `Unsupported provider apiVersion ${String(root.apiVersion)}; expected ${SKEG_PROVIDER_API_VERSION}`,
+    });
+    return { id: fallbackId, capabilities: [], diagnostics };
+  }
+  const v1 = root as unknown as SkegProviderV1;
+  const id =
+    typeof v1.id === 'string' && v1.id.trim() ? v1.id.trim() : fallbackId;
+  const capabilities = Array.isArray(v1.capabilities)
+    ? v1.capabilities.filter(
+        (c): c is ProviderCapability =>
+          c === 'policy' || c === 'check' || c === 'record',
+      )
+    : [];
+  const policies =
+    v1.policies && typeof v1.policies.inspect === 'function'
+      ? v1.policies
+      : undefined;
+  const checks =
+    v1.checks && typeof v1.checks.classify === 'function'
+      ? v1.checks
+      : undefined;
+  const records =
+    v1.records && typeof v1.records.select === 'function'
+      ? v1.records
+      : undefined;
+
+  if (capabilities.includes('policy') && !policies) {
+    diagnostics.push({
+      level: 'warning',
+      path,
+      message: `Provider ${id} lists policy capability but exports no policies`,
+    });
+  }
+  if (capabilities.includes('check') && !checks) {
+    diagnostics.push({
+      level: 'warning',
+      path,
+      message: `Provider ${id} lists check capability but exports no checks`,
+    });
+  }
+  if (capabilities.includes('record') && !records) {
+    diagnostics.push({
+      level: 'warning',
+      path,
+      message: `Provider ${id} lists record capability but exports no records`,
+    });
+  }
+  return { id, capabilities, policies, checks, records, diagnostics };
 }
 
 /**

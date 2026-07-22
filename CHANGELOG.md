@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.0 — 2026-07-22
+
+Stable Surface。默认只注册 `/skeg`；清理 legacy 兼容面。
+
+### Breaking
+- `pi.extensions` 默认不再加载 `extensions/compat.ts`（扁平 `/init` `/run` `/status` `/finish` `/record` 需 opt-in）
+- Provider 必须 `apiVersion: 1`（`defineProvider`）；无 apiVersion 的旧模块拒绝加载
+- `riskTriggers` 不再映射进 policies（仅 warning：改用 `policies`）
+- 删除 `prompts/fix.md`（保留 `/skeg-fix`）
+
+### Changed
+- 实机 smoke / host-dogfood 剧本切换到 `/skeg …` 命令面
+- smoke 断言默认下扁平 `/run` 不注册
+
 ## 0.9.0 — 2026-07-22
 
 Real-host Green：实机 smoke 剧本对齐 closure / 注入语义，源码与 `--dist` 双 PASS。

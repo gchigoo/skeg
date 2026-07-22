@@ -11,6 +11,7 @@ import {
   readFileSync,
   readdirSync,
   unlinkSync,
+  rmSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -123,10 +124,18 @@ function ensureSandbox(root) {
     ),
   );
   // --dist 沙箱含 node_modules；必须忽略，否则 git 无可用 HEAD → diff 证据失败
+  // Windows 保留名 nul/NUL 若被 agent 误创建也会让 git add 失败
   writeFileSync(
     join(root, '.gitignore'),
-    ['node_modules/', '*.tgz', '.pi/sessions/', ''].join('\n'),
+    ['node_modules/', '*.tgz', '.pi/sessions/', 'nul', 'NUL', ''].join('\n'),
   );
+  for (const bad of ['nul', 'NUL']) {
+    try {
+      unlinkSync(join(root, bad));
+    } catch {
+      /* ignore */
+    }
+  }
   writeFileSync(
     join(root, 'src/auth/redirect.ts'),
     'export function buildRedirect(path: string, query: string) {\n  return path;\n}\n',
@@ -165,34 +174,72 @@ function ensureSandbox(root) {
   );
 
   // 初始化/重置 git，便于 prove/diff；fixture 重写后必须再 commit
-  if (!existsSync(join(root, '.git'))) {
+  ensureGitRepo(root);
+  commitSandbox(root, 'smoke fixture reset', { required: true });
+  execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, stdio: 'ignore' });
+}
+
+/**
+ * 确保沙箱有可用 git 仓库（损坏则重建）。
+ * @param {string} root
+ */
+function ensureGitRepo(root) {
+  const gitDir = join(root, '.git');
+  const usable = () => {
+    try {
+      execFileSync('git', ['rev-parse', '--git-dir'], {
+        cwd: root,
+        stdio: 'ignore',
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (!usable()) {
+    try {
+      rmSync(gitDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
     execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
   }
-  commitSandbox(root, 'smoke fixture reset');
-  execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, stdio: 'ignore' });
 }
 
 /**
  * 提交沙箱当前变更，隔离后续 run 的 git heal 范围。
  * @param {string} root
  * @param {string} message
+ * @param {{ required?: boolean }} [opts]
  */
-function commitSandbox(root, message) {
-  execFileSync('git', ['add', '-A'], { cwd: root, stdio: 'ignore' });
-  execFileSync(
-    'git',
-    [
-      '-c',
-      'user.email=skeg@smoke.local',
-      '-c',
-      'user.name=skeg-smoke',
-      'commit',
-      '-m',
-      message,
-      '--allow-empty',
-    ],
-    { cwd: root, stdio: 'ignore' },
-  );
+function commitSandbox(root, message, opts = {}) {
+  const required = opts.required === true;
+  for (const bad of ['nul', 'NUL']) {
+    try {
+      unlinkSync(join(root, bad));
+    } catch {
+      /* ignore */
+    }
+  }
+  try {
+    execFileSync('git', ['add', '-A'], { cwd: root, stdio: 'ignore' });
+    execFileSync(
+      'git',
+      [
+        '-c',
+        'user.email=skeg@smoke.local',
+        '-c',
+        'user.name=skeg-smoke',
+        'commit',
+        '-m',
+        message,
+        '--allow-empty',
+      ],
+      { cwd: root, stdio: 'ignore' },
+    );
+  } catch (err) {
+    if (required) throw err;
+  }
 }
 
 class PiRpc {
@@ -512,34 +559,64 @@ async function main() {
     if (!check(name, ok, detail)) failures.push(name);
   };
 
-  // --- /init（顺带证明命令已注册并有 notify UX）---
+  // --- /skeg init（顺带证明命令已注册并有 notify UX）---
   pi.notifies = [];
-  await pi.prompt('/init');
+  await pi.prompt('/skeg init');
   const initNotify = pi.notifies.find((n) =>
     /skeg|\.skeg|initialized|created/i.test(n.message || ''),
   );
   record(
-    'commands UX (/init)',
+    'commands UX (/skeg init)',
     Boolean(initNotify),
     initNotify?.message?.split('\n')[0] || 'no notify',
   );
   record(
-    '/init writes .skeg',
+    '/skeg init writes .skeg',
     existsSync(join(SANDBOX, '.skeg/config.json')) &&
       existsSync(join(SANDBOX, '.skeg/project.md')),
   );
 
-  // /record 轻量验证（为后续 Records 索引注入预置一条）
+  // v1.0：默认不加载 compat；扁平 /run 不得启动 run
+  // 未注册时 Pi 可能把 `/run …` 当普通 prompt → 短等后 abort，只断言无 Started run
   pi.notifies = [];
-  await pi.prompt('/record incident Smoke note | pi smoke harness check');
+  const flatBefore = pi.events.length;
+  pi.send({ type: 'prompt', message: '/run should-not-register-flat-command' });
+  await new Promise((r) => setTimeout(r, 2500));
+  const flatStarted = pi.notifies.some((n) =>
+    /Started run/i.test(n.message || ''),
+  );
+  if (pi.events.slice(flatBefore).some((e) => e.type === 'agent_start')) {
+    try {
+      pi.send({ type: 'abort' });
+    } catch {
+      /* ignore */
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  record(
+    'flat /run not registered by default',
+    !flatStarted,
+    flatStarted
+      ? 'Started run unexpectedly'
+      : pi.notifies.map((n) => n.message || '').join(' | ').slice(0, 160) ||
+          'no Started notify (command absent or treated as prompt)',
+  );
+
+  // /skeg record 轻量验证（为后续 Records 索引注入预置一条）
+  pi.notifies = [];
+  await pi.prompt('/skeg record incident Smoke note | pi smoke harness check');
   const recordNotify = pi.notifies.find((n) => /Recorded/i.test(n.message || ''));
-  record('commands UX (/record)', Boolean(recordNotify), recordNotify?.message || '');
+  record(
+    'commands UX (/skeg record)',
+    Boolean(recordNotify),
+    recordNotify?.message || '',
+  );
   const recordDir = join(SANDBOX, '.skeg/records');
   const recordFile = existsSync(recordDir)
     ? readdirSync(recordDir).find((n) => n.startsWith('INC-') && n.endsWith('.md'))
     : undefined;
   record(
-    '/record writes file',
+    '/skeg record writes file',
     Boolean(recordFile) &&
       readFileSync(join(recordDir, recordFile), 'utf8').includes('Smoke note'),
     recordFile || 'missing',
@@ -548,9 +625,9 @@ async function main() {
   // ========== lean 1: redirect ==========
   pi.notifies = [];
   pi.uiRequests = [];
-  await pi.prompt('/run fix redirect query loss after login');
+  await pi.prompt('/skeg start fix redirect query loss after login');
   const run1 = pi.notifies.find((n) => /Started run/i.test(n.message || ''));
-  record('lean1 /run UX', Boolean(run1), run1?.message?.split('\n')[0] || '');
+  record('lean1 /skeg start UX', Boolean(run1), run1?.message?.split('\n')[0] || '');
 
   await pi.prompt(
     [
@@ -592,10 +669,10 @@ async function main() {
   record('lean1 file edited', redirect.includes('query'), 'redirect.ts');
 
   pi.notifies = [];
-  await pi.prompt('/status');
+  await pi.prompt('/skeg status');
   const status1 = pi.notifies.map((n) => n.message || '').join('\n');
   record(
-    'lean1 /status intent+lean',
+    'lean1 /skeg status intent+lean',
     /Intent:.*redirect/i.test(status1) && /Risk:\s*lean/i.test(status1),
     status1.replace(/\n/g, ' | ').slice(0, 200),
   );
@@ -611,10 +688,10 @@ async function main() {
   );
 
   pi.notifies = [];
-  await pi.prompt('/finish');
+  await pi.prompt('/skeg finish');
   const finish1 = pi.notifies.map((n) => n.message || '').join('\n');
   record(
-    'lean1 /finish closes',
+    'lean1 /skeg finish closes',
     /Done:\s*.*redirect/i.test(finish1) && !/Cannot finish/i.test(finish1),
     finish1.replace(/\n/g, ' | ').slice(0, 240),
   );
@@ -623,9 +700,9 @@ async function main() {
   // ========== lean 2: false-green 拒绝 + abandon 清场 ==========
   pi.notifies = [];
   pi.uiRequests = [];
-  await pi.prompt('/run fix typo in settings copy SAVE_LABEL');
+  await pi.prompt('/skeg start fix typo in settings copy SAVE_LABEL');
   record(
-    'lean2 /run UX',
+    'lean2 /skeg start UX',
     pi.notifies.some((n) => /Started run/i.test(n.message || '')),
   );
 
@@ -653,10 +730,10 @@ async function main() {
   );
 
   pi.notifies = [];
-  await pi.prompt('/status');
+  await pi.prompt('/skeg status');
   const status2 = pi.notifies.map((n) => n.message || '').join('\n');
   record(
-    'lean2 /status intent+lean',
+    'lean2 /skeg status intent+lean',
     /Intent:.*typo|SAVE_LABEL|settings copy/i.test(status2) &&
       /Risk:\s*lean/i.test(status2),
     status2.replace(/\n/g, ' | ').slice(0, 200),
@@ -667,21 +744,21 @@ async function main() {
     status2.replace(/\n/g, ' | ').slice(0, 200),
   );
 
-  // 无 targeted-test 证据时 /finish 必须拒绝（false-green 防线）
+  // 无 targeted-test 证据时 /skeg finish 必须拒绝（false-green 防线）
   pi.notifies = [];
-  await pi.prompt('/finish');
+  await pi.prompt('/skeg finish');
   const finish2 = pi.notifies.map((n) => n.message || '').join('\n');
   record(
-    'lean2 /finish rejects missing evidence',
+    'lean2 /skeg finish rejects missing evidence',
     /Cannot finish/i.test(finish2) && /targeted-test/i.test(finish2),
     finish2.replace(/\n/g, ' | ').slice(0, 240),
   );
 
   pi.notifies = [];
-  await pi.prompt('/finish --abandon');
+  await pi.prompt('/skeg finish --abandon');
   const abandon2 = pi.notifies.map((n) => n.message || '').join('\n');
   record(
-    'lean2 /finish --abandon clears',
+    'lean2 /skeg finish --abandon clears',
     /Abandoned:/i.test(abandon2),
     abandon2.replace(/\n/g, ' | ').slice(0, 200),
   );
@@ -691,9 +768,9 @@ async function main() {
   pi.notifies = [];
   pi.uiRequests = [];
   pi.autoConfirm = true;
-  await pi.prompt('/run add unique index migration on users.email');
+  await pi.prompt('/skeg start add unique index migration on users.email');
   record(
-    'risk /run UX',
+    'risk /skeg start UX',
     pi.notifies.some((n) => /Started run/i.test(n.message || '')),
   );
 
@@ -729,21 +806,21 @@ async function main() {
   );
 
   pi.notifies = [];
-  await pi.prompt('/status');
+  await pi.prompt('/skeg status');
   const status3 = pi.notifies.map((n) => n.message || '').join('\n');
   record(
-    'risk /status guarded+deterministic',
+    'risk /skeg status guarded+deterministic',
     /Risk:\s*guarded\s*\(deterministic\)/i.test(status3),
     status3.replace(/\n/g, ' | ').slice(0, 240),
   );
 
   pi.notifies = [];
   await pi.prompt(
-    '/finish --waive "smoke: migration fixture; waive remaining checks"',
+    '/skeg finish --waive "smoke: migration fixture; waive remaining checks"',
   );
   const finish3 = pi.notifies.map((n) => n.message || '').join('\n');
   record(
-    'risk /finish --waive closes',
+    'risk /skeg finish --waive closes',
     /Done:\s*.*(migration|unique index|users\.email)/i.test(finish3) &&
       /Waivers:/i.test(finish3) &&
       !/Cannot finish/i.test(finish3) &&

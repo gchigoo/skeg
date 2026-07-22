@@ -322,7 +322,7 @@ function parseProviders(
 }
 
 /**
- * 解析 policies；兼容旧 riskTriggers。
+ * 解析 policies；旧 riskTriggers 仅告警、不再映射。
  * @param raw 原始对象
  * @param diagnostics 诊断
  * @returns policies
@@ -333,23 +333,12 @@ function resolvePolicies(
 ): Record<TriggerId, TriggerPolicy> {
   const out: Record<TriggerId, TriggerPolicy> = { ...DEFAULT_POLICIES };
 
-  if (raw.riskTriggers && typeof raw.riskTriggers === 'object') {
+  if (raw.riskTriggers !== undefined) {
     diagnostics.push({
-      level: 'info',
+      level: 'warning',
       path: 'riskTriggers',
-      message: 'Deprecated; prefer policies.{trigger}.{risk,action}',
+      message: 'riskTriggers removed in v1.0; use policies.{trigger}.{risk,action}',
     });
-    const rt = raw.riskTriggers as Record<string, RiskLevel>;
-    for (const id of [
-      'dependencyChange',
-      'publicApiChange',
-      'databaseMigration',
-      'authChange',
-    ] as const) {
-      if (rt[id] === 'lean' || rt[id] === 'guarded') {
-        out[id] = { ...out[id], risk: rt[id] };
-      }
-    }
   }
 
   if (raw.policies && typeof raw.policies === 'object') {

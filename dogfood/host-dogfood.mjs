@@ -739,10 +739,10 @@ async function runScenario(pi, scenario, round = 0) {
 
   pi.notifies = [];
   pi.uiRequests = [];
-  await pi.prompt(`/run ${scenario.intent}`);
+  await pi.prompt(`/skeg start ${scenario.intent}`);
   if (!pi.notifies.some((n) => /Started run/i.test(n.message || ''))) {
     pass = false;
-    frictions.push('major|/run did not notify Started run');
+    frictions.push('major|/skeg start did not notify Started run');
   }
 
   await pi.prompt(scenario.work);
@@ -789,12 +789,12 @@ async function runScenario(pi, scenario, round = 0) {
   }
 
   pi.notifies = [];
-  await pi.prompt('/status');
+  await pi.prompt('/skeg status');
   let status = pi.notifies.map((n) => n.message || '').join('\n');
   for (const needle of scenario.expect?.statusIncludes ?? []) {
     if (!status.includes(needle)) {
       pass = false;
-      frictions.push(`minor|/status missing ${needle}`);
+      frictions.push(`minor|/skeg status missing ${needle}`);
     }
   }
   if (scenario.expect?.checkName) {
@@ -802,7 +802,7 @@ async function runScenario(pi, scenario, round = 0) {
     if (!loose.test(status)) {
       pass = false;
       frictions.push(
-        `major|expected check ${scenario.expect.checkName} in /status: ${status.replace(/\n/g, ' | ').slice(0, 220)}`,
+        `major|expected check ${scenario.expect.checkName} in /skeg status: ${status.replace(/\n/g, ' | ').slice(0, 220)}`,
       );
     }
   }
@@ -810,7 +810,7 @@ async function runScenario(pi, scenario, round = 0) {
     if (!/Risk:\s*guarded/i.test(status)) {
       pass = false;
       frictions.push(
-        `major|expected Risk guarded in /status: ${status.replace(/\n/g, ' | ').slice(0, 220)}`,
+        `major|expected Risk guarded in /skeg status: ${status.replace(/\n/g, ' | ').slice(0, 220)}`,
       );
     }
   }
@@ -829,25 +829,25 @@ async function runScenario(pi, scenario, round = 0) {
 
   if (scenario.recordAfter) {
     pi.notifies = [];
-    await pi.prompt(`/record ${scenario.recordAfter}`);
+    await pi.prompt(`/skeg record ${scenario.recordAfter}`);
     if (!pi.notifies.some((n) => /Recorded/i.test(n.message || ''))) {
       pass = false;
-      frictions.push('major|/record after run failed');
+      frictions.push('major|/skeg record after run failed');
     }
   }
 
   pi.notifies = [];
   if (scenario.abandon) {
-    await pi.prompt('/finish --abandon');
+    await pi.prompt('/skeg finish --abandon');
     const abandonMsg = pi.notifies.map((n) => n.message || '').join('\n');
     if (!/Abandoned/i.test(abandonMsg)) {
       pass = false;
       frictions.push(
-        `major|/finish --abandon did not notify Abandoned: ${abandonMsg.slice(0, 160)}`,
+        `major|/skeg finish --abandon did not notify Abandoned: ${abandonMsg.slice(0, 160)}`,
       );
     }
     pi.notifies = [];
-    await pi.prompt('/status');
+    await pi.prompt('/skeg status');
     status = pi.notifies.map((n) => n.message || '').join('\n');
     if (scenario.expect?.abandoned && !/Status:\s*abandoned/i.test(status)) {
       pass = false;
@@ -856,11 +856,11 @@ async function runScenario(pi, scenario, round = 0) {
       );
     }
   } else if (scenario.finish !== false) {
-    await pi.prompt('/finish');
+    await pi.prompt('/skeg finish');
     const finish = pi.notifies.map((n) => n.message || '').join('\n');
     if (!finish) {
       pass = false;
-      frictions.push('major|/finish produced no notify');
+      frictions.push('major|/skeg finish produced no notify');
     }
   }
 
@@ -914,8 +914,8 @@ function appendFriction(results, hostName, round) {
     '',
     '## 怎么记',
     '',
-    '1. 项目内：`pi install -l /path/to/skeg` → `/init`',
-    '2. 每个真实任务：`/run <intent>` → 工作 → `/status` → `/finish`；值得留的用 `/record`',
+    '1. 项目内：`pi install -l /path/to/skeg` → `/skeg init`',
+    '2. 每个真实任务：`/skeg start <intent>` → 工作 → `/skeg status` → `/skeg finish`；值得留的用 `/skeg record`',
     '3. 本文件追加 Round；无摩擦也记 `摩擦点=none`，仍计 1 个 run',
     '4. 严重度：`blocker` / `major` / `minor` / `nit` / `none`',
     '5. 宿主批量：`npm run dogfood:host -- --cwd <project> [--profile <name>]`',
@@ -1010,7 +1010,7 @@ async function runOnce() {
   await pi.start();
 
   pi.notifies = [];
-  await pi.prompt('/init --force');
+  await pi.prompt('/skeg init --force');
   console.log(
     'init:',
     pi.notifies.map((n) => n.message).join(' | ').slice(0, 160),
@@ -1037,7 +1037,7 @@ async function runOnce() {
       });
       console.log(`FAIL  ${scenario.id} — ${message}`);
       try {
-        await pi.prompt('/run --abandon');
+        await pi.prompt('/skeg start --abandon');
       } catch {
         /* ignore */
       }

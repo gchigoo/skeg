@@ -1,6 +1,8 @@
 /**
  * Skeg 兼容层：扁平 /init /run /status /finish /record。
- * v0.8 起从 core 拆出；v1.0 将从默认 pi.extensions 移除。
+ * v1.0 起默认不加载（不在 package.json pi.extensions）；需 opt-in：
+ *   .pi/settings.json → "extensions": ["…/node_modules/@gchigoo/skeg/extensions/compat.ts"]
+ * 或 packages 对象形式显式列出 core + compat。
  * RunState 经 session entries 与 core 共享；gate/pending 经 src/hostsession.ts 共享。
  */
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';

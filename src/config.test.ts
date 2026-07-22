@@ -46,3 +46,34 @@ describe('parseCommands (via loadConfigWithDiagnostics)', () => {
     }
   });
 });
+
+describe('riskTriggers (via loadConfigWithDiagnostics)', () => {
+  it('warns and does not map riskTriggers in v1.0', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'skeg-cfg-rt-'));
+    try {
+      mkdirSync(join(cwd, '.skeg'), { recursive: true });
+      writeFileSync(
+        join(cwd, '.skeg/config.json'),
+        JSON.stringify({
+          riskTriggers: { databaseMigration: 'lean' },
+          policies: {
+            databaseMigration: { risk: 'guarded', action: 'confirm' },
+          },
+        }),
+        'utf8',
+      );
+      const result = loadConfigWithDiagnostics(cwd);
+      assert.ok(
+        result.diagnostics.some(
+          (d) =>
+            d.level === 'warning' &&
+            d.path === 'riskTriggers' &&
+            /removed in v1\.0/i.test(d.message),
+        ),
+      );
+      assert.equal(result.config.policies.databaseMigration.risk, 'guarded');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});

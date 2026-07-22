@@ -36,33 +36,60 @@ In a repo:
 /skeg finish
 ```
 
-Flat aliases (`/init` `/run` `/status` `/finish` `/record`) remain for compatibility but emit a deprecation notice (prefer `/skeg …`).
-
 Prompt template:
 
 ```
 /skeg-fix user still sees old avatar after logout
 ```
 
-(`/fix` still works.)
+### Compat opt-in (flat commands)
+
+v1.0 起默认只注册 `/skeg`。扁平 `/init` `/run` `/status` `/finish` `/record` 仍随包分发，需手动启用其一：
+
+```json
+{
+  "packages": ["@gchigoo/skeg"],
+  "extensions": [
+    "./node_modules/@gchigoo/skeg/extensions/compat.ts"
+  ]
+}
+```
+
+或 packages 对象形式显式列出：
+
+```json
+{
+  "packages": [
+    {
+      "source": "./node_modules/@gchigoo/skeg",
+      "extensions": ["./extensions/core.ts", "./extensions/compat.ts"]
+    }
+  ]
+}
+```
 
 ## Status
 
-**v0.9.0** — Real-host Green：实机 smoke（源码 + `--dist`）对齐 closure / 注入审计，作为发布前宿主 gate。
+**v1.0.0** — Stable Surface：默认只注册 `/skeg`；Provider API v1 为唯一加载格式；`riskTriggers` 不再映射。
+
+### 稳定面承诺
+
+- 命令面：`/skeg init|start|status|finish|record|trust|untrust|providers…`
+- Provider：`@gchigoo/skeg/provider-api` + `apiVersion: 1` / `defineProvider`
+- Config：`policies` / 结构化或 `/regex/` CheckMatcher；普通子串 matcher 拒绝
+- Closure：当前 revision 证据；`--waive` / `--abandon` 显式出口
 
 ```bash
 npm run verify
 npm run verify:dist   # verify + pack dry-run + dogfood/dist-e2e
-npm run smoke         # 实机：lean 真关闭 + false-green 拒绝 + risk waive（需模型 API）
+npm run smoke         # 实机：/skeg 剧本（需模型 API）
 npm run smoke -- --dist
 npm run dogfood:adversarial
 npm run dogfood:runtime
 npm run dogfood:host -- --cwd . --profile skeg
 ```
 
-Smoke 剧本：lean1 编辑后跑 `npm test -- <path>` 再 `/finish`；lean2 无证据须被拒绝并用 `--abandon` 清场；risk gate 后 `/finish --waive`。注入经 `skeg/context` 审计 entry 可观测。
-
-扁平命令 `/init` `/run` `/status` `/finish` `/record` 由 `extensions/compat.ts` 提供（默认启用，仍提示改用 `/skeg …`）。可从 `package.json` → `pi.extensions` 移除该条目以禁用。v1.0 将从默认列表移除 compat。
+Smoke 剧本：lean1 编辑后跑 `npm test -- <path>` 再 `/skeg finish`；lean2 无证据须被拒绝并用 `--abandon` 清场；risk gate 后 `/skeg finish --waive`。注入经 `skeg/context` 审计 entry 可观测。
 
 ## Config highlights
 
@@ -117,7 +144,7 @@ npx skeg-provider-test .skeg/providers/postgres.mjs
 npm run check:providers
 ```
 
-### Matcher migration (v0.7)
+### Matcher migration
 
 普通子串 matcher 已拒绝（配置诊断 `error` 并忽略该条目）。请改用 `/regex/` 或结构化 `CheckMatcher`：
 
@@ -131,7 +158,7 @@ npm run check:providers
 }
 ```
 
-- 成功修改工作区 → `revision+1`，旧 checks 变 stale；`/finish` 只接受当前 revision 证据
+- 成功修改工作区 → `revision+1`，旧 checks 变 stale；`/skeg finish` 只接受当前 revision 证据
 - `/skeg finish --waive "reason"` 显式承担风险
 - `cat migrations/*.sql` 为 read，不记变更、不弹 gate
 - Providers 仅可位于 `.skeg/providers/**`（或裸包名）；须 `/skeg trust <spec>` 后才加载；内容变更后信任失效

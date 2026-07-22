@@ -152,6 +152,31 @@ export default { checks: { classify() { return null; } } };
       loaded.diagnostics.some((d) => d.message.includes('.skeg/providers')),
     );
   });
+
+  it('rejects legacy modules without apiVersion', async () => {
+    writeFileSync(
+      join(cwd, '.skeg', 'providers', 'legacy.mjs'),
+      `export default {
+  checks: { classify() { return { kind: 'command', name: 'legacy-check' }; } }
+};
+`,
+      'utf8',
+    );
+    const spec = '.skeg/providers/legacy.mjs';
+    assert.equal(trustProvider(cwd, spec).ok, true);
+    const loaded = await loadProviders(cwd, {
+      ...DEFAULT_CONFIG,
+      providers: [entry(spec, { id: 'legacy' })],
+    });
+    assert.equal(loaded.checks.length, 0);
+    assert.ok(
+      loaded.diagnostics.some(
+        (d) =>
+          d.level === 'error' &&
+          /apiVersion:\s*1|defineProvider|legacy/i.test(d.message),
+      ),
+    );
+  });
 });
 
 describe('mergePolicyHits', () => {
