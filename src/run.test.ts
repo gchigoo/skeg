@@ -27,12 +27,17 @@ describe('hasCliFlag', () => {
 });
 
 describe('createRun', () => {
-  it('starts lean orient active', () => {
+  it('starts lean orient active schema v2', () => {
     const run = createRun('fix redirect');
     assert.equal(run.status, 'active');
     assert.equal(run.phase, 'orient');
     assert.equal(run.risk, 'lean');
     assert.equal(run.riskSource, 'advisory');
+    assert.equal(run.schemaVersion, 2);
+    assert.equal(run.revision, 0);
+    assert.deepEqual(run.signals, []);
+    assert.deepEqual(run.gates, []);
+    assert.deepEqual(run.waivers, []);
   });
 });
 

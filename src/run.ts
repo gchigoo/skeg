@@ -1,27 +1,44 @@
 /**
  * RunState 创建、更新与序列化（宿主无关）。
+ * 状态变更委托给 reducer；本模块保留命令层友好 API。
  */
+import { migrateRunState } from './migrate.ts';
+import { gateFromHits, reduce } from './reducer.ts';
 import type {
-  CheckResult,
+  CheckRun,
   Gate,
   Phase,
   RiskHit,
   RiskLevel,
-  RiskSource,
   RunState,
 } from './types.ts';
 
 /**
  * 检测 slash 命令参数是否含 CLI flag。
- * 注意：`--flag` 不能用 `\b--flag`（`--` 前无 word boundary，永远不匹配）。
  * @param args 命令参数（不含命令名）
- * @param flag 含或不含 `--` 前缀均可，如 `force` / `--force`
+ * @param flag 含或不含 `--` 前缀均可
  * @returns 是否命中
  */
 export function hasCliFlag(args: string | undefined, flag: string): boolean {
   const name = flag.replace(/^--/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   if (!name) return false;
   return new RegExp(`(?:^|\\s)--${name}(?:\\s|$)`).test(args || '');
+}
+
+/**
+ * 提取 `--waive "..."` 或 `--waive reason` 理由。
+ * @param args 命令参数
+ * @returns 理由或 null
+ */
+export function parseWaiveReason(args: string | undefined): string | null {
+  if (!args) return null;
+  const quoted = args.match(/--waive\s+"([^"]+)"/);
+  if (quoted?.[1]) return quoted[1].trim();
+  const single = args.match(/--waive\s+'([^']+)'/);
+  if (single?.[1]) return single[1].trim();
+  const bare = args.match(/--waive\s+(\S+(?:\s+(?!--)\S+)*)/);
+  if (bare?.[1]) return bare[1].trim();
+  return null;
 }
 
 /**
@@ -34,23 +51,11 @@ export function createRun(
   intent: string,
   risk: RiskLevel = 'lean',
 ): RunState {
-  const now = new Date().toISOString();
-  return {
-    id: `run_${Date.now().toString(36)}`,
-    intent: intent.trim(),
-    status: 'active',
-    risk,
-    riskSource: 'advisory',
-    phase: 'orient',
-    changedFiles: [],
-    checks: [],
-    createdAt: now,
-    updatedAt: now,
-  };
+  return reduce(null, { type: 'RUN_STARTED', intent, risk });
 }
 
 /**
- * 从 session entries 中取最近一条 RunState。
+ * 从 session entries 中取最近一条 RunState（自动迁移 v1）。
  * @param entries Pi session entries
  * @returns 最近 RunState 或 null
  */
@@ -60,10 +65,8 @@ export function latestRunFromEntries(
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i];
     if (entry?.type === 'custom' && entry.customType === 'skeg/run') {
-      const data = entry.data as RunState | undefined;
-      if (data && typeof data.id === 'string' && typeof data.intent === 'string') {
-        return data;
-      }
+      const migrated = migrateRunState(entry.data);
+      if (migrated) return migrated;
     }
   }
   return null;
@@ -85,31 +88,32 @@ export function isOpenRun(run: RunState | null | undefined): boolean {
  * @returns 更新后的副本
  */
 export function setPhase(run: RunState, phase: Phase): RunState {
-  return touch({ ...run, phase });
+  return reduce(run, { type: 'PHASE_SET', phase });
 }
 
 /**
- * 记录改动文件（去重）。
+ * 记录改动文件并 bump revision（mutation 语义）。
  * @param run 当前状态
  * @param files 新增文件
  * @returns 更新后的副本
  */
 export function addChangedFiles(run: RunState, files: string[]): RunState {
   if (files.length === 0) return run;
-  const set = new Set(run.changedFiles);
-  for (const f of files) set.add(f);
-  return touch({ ...run, changedFiles: [...set] });
+  return reduce(run, { type: 'MUTATION_COMMITTED', paths: files });
 }
 
 /**
- * 记录 check 结果（同名覆盖）。
+ * 记录 check 结果（同名同 revision 覆盖）。
  * @param run 当前状态
- * @param check check 结果
+ * @param check check 结果（id/revision/observedAt 可选）
  * @returns 更新后的副本
  */
-export function upsertCheck(run: RunState, check: CheckResult): RunState {
-  const rest = run.checks.filter((c) => c.name !== check.name);
-  return touch({ ...run, checks: [...rest, check] });
+export function upsertCheck(
+  run: RunState,
+  check: Omit<CheckRun, 'id' | 'revision' | 'observedAt'> &
+    Partial<Pick<CheckRun, 'id' | 'revision' | 'observedAt'>>,
+): RunState {
+  return reduce(run, { type: 'CHECK_RECORDED', check });
 }
 
 /**
@@ -119,18 +123,31 @@ export function upsertCheck(run: RunState, check: CheckResult): RunState {
  * @returns 更新后的副本
  */
 export function applyRiskHit(run: RunState, hit: RiskHit): RunState {
-  const gate: Gate = {
-    id: `gate_${Date.now().toString(36)}`,
-    trigger: hit.trigger,
-    reason: hit.reason,
-    path: hit.path || undefined,
-  };
-  return touch({
-    ...run,
-    risk: 'guarded',
-    riskSource: 'deterministic',
-    status: 'blocked',
-    pendingGate: gate,
+  const gate = gateFromHits(
+    [hit],
+    hit.fingerprint
+      ? `${hit.trigger}:${hit.fingerprint}`
+      : `${hit.trigger}:${hit.path || ''}`,
+  );
+  return reduce(run, { type: 'GATE_OPENED', gate });
+}
+
+/**
+ * 打开含多个 hit 的 gate。
+ * @param run 当前状态
+ * @param hits 命中列表
+ * @param actionFingerprint 动作指纹
+ * @returns 更新后的副本
+ */
+export function openGate(
+  run: RunState,
+  hits: RiskHit[],
+  actionFingerprint: string,
+): RunState {
+  if (hits.length === 0) return run;
+  return reduce(run, {
+    type: 'GATE_OPENED',
+    gate: gateFromHits(hits, actionFingerprint),
   });
 }
 
@@ -141,13 +158,7 @@ export function applyRiskHit(run: RunState, hit: RiskHit): RunState {
  * @returns 更新后的副本
  */
 export function applyAdvisoryRisk(run: RunState, risk: RiskLevel): RunState {
-  if (run.riskSource === 'deterministic') return run;
-  if (risk === 'lean') return run;
-  return touch({
-    ...run,
-    risk: 'guarded',
-    riskSource: 'advisory',
-  });
+  return reduce(run, { type: 'RISK_ADVISORY', risk });
 }
 
 /**
@@ -156,12 +167,7 @@ export function applyAdvisoryRisk(run: RunState, risk: RiskLevel): RunState {
  * @returns 更新后的副本
  */
 export function resolveGate(run: RunState): RunState {
-  if (!run.pendingGate) return run;
-  return touch({
-    ...run,
-    status: 'active',
-    pendingGate: { ...run.pendingGate, resolved: true },
-  });
+  return reduce(run, { type: 'GATE_RESOLVED', approved: true });
 }
 
 /**
@@ -170,9 +176,7 @@ export function resolveGate(run: RunState): RunState {
  * @returns 更新后的副本
  */
 export function clearResolvedGate(run: RunState): RunState {
-  if (!run.pendingGate?.resolved) return run;
-  const { pendingGate: _, ...rest } = run;
-  return touch(rest as RunState);
+  return reduce(run, { type: 'GATE_CLEARED' });
 }
 
 /**
@@ -185,12 +189,26 @@ export function closeRun(
   run: RunState,
   status: 'done' | 'abandoned',
 ): RunState {
-  return touch({
-    ...run,
-    status,
-    phase: 'close',
-    pendingGate: undefined,
-  });
+  return reduce(run, { type: 'RUN_FINISHED', status });
+}
+
+/**
+ * 当前 revision 下有效（非 stale）的 checks。
+ * @param run 当前状态
+ * @returns 当前 revision 的 checks
+ */
+export function currentChecks(run: RunState): CheckRun[] {
+  return run.checks.filter((c) => c.revision === run.revision);
+}
+
+/**
+ * 判断某 check 名在当前 revision 是否已通过。
+ * @param run 当前状态
+ * @param name check 名
+ * @returns 是否通过
+ */
+export function hasFreshPass(run: RunState, name: string): boolean {
+  return currentChecks(run).some((c) => c.name === name && c.passed);
 }
 
 /**
@@ -204,18 +222,38 @@ export function formatStatus(run: RunState | null): string {
     run.checks.length === 0
       ? '(none)'
       : run.checks
-          .map((c) => `${c.passed ? 'pass' : 'fail'}:${c.name}`)
+          .map((c) => {
+            const stale = c.revision !== run.revision;
+            const mark = c.passed ? 'pass' : 'fail';
+            return stale
+              ? `${mark}:${c.name}@r${c.revision}(stale)`
+              : `${mark}:${c.name}@r${c.revision}`;
+          })
           .join(', ');
   const gate = run.pendingGate
     ? `${run.pendingGate.trigger}${run.pendingGate.resolved ? ' (resolved)' : ''}: ${run.pendingGate.reason}`
     : '(none)';
+  const signals =
+    run.signals.filter((s) => s.revision === run.revision).length === 0
+      ? '(none)'
+      : run.signals
+          .filter((s) => s.revision === run.revision)
+          .map((s) => s.trigger)
+          .join(', ');
+  const pre =
+    run.preExistingFiles && run.preExistingFiles.length > 0
+      ? run.preExistingFiles.join(', ')
+      : '(none)';
   return [
     `Intent:  ${run.intent}`,
     `Status:  ${run.status}`,
     `Phase:   ${run.phase}`,
+    `Revision:${run.revision}`,
     `Risk:    ${run.risk} (${run.riskSource})`,
     `Files:   ${run.changedFiles.length === 0 ? '(none)' : run.changedFiles.join(', ')}`,
+    `Pre-existing: ${pre}`,
     `Checks:  ${checks}`,
+    `Signals: ${signals}`,
     `Gate:    ${gate}`,
     `Id:      ${run.id}`,
   ].join('\n');
@@ -228,9 +266,7 @@ export function formatStatus(run: RunState | null): string {
  * @returns 更新后的副本
  */
 export function addRecordId(run: RunState, recordId: string): RunState {
-  const ids = run.recordIds ?? [];
-  if (ids.includes(recordId)) return run;
-  return touch({ ...run, recordIds: [...ids, recordId] });
+  return reduce(run, { type: 'RECORD_ADDED', recordId });
 }
 
 /**
@@ -239,10 +275,11 @@ export function addRecordId(run: RunState, recordId: string): RunState {
  * @returns 报告文本
  */
 export function formatCloseReport(run: RunState): string {
+  const fresh = currentChecks(run);
   const checks =
-    run.checks.length === 0
-      ? '- (no checks recorded)'
-      : run.checks
+    fresh.length === 0
+      ? '- (no fresh checks recorded)'
+      : fresh
           .map(
             (c) =>
               `- ${c.name}: ${c.passed ? 'pass' : 'fail'}${c.evidence ? ` (${c.evidence})` : ''}`,
@@ -252,12 +289,21 @@ export function formatCloseReport(run: RunState): string {
     run.recordIds && run.recordIds.length > 0
       ? run.recordIds.join(', ')
       : 'none (use /record when worth keeping)';
+  const waivers =
+    run.waivers.filter((w) => w.revision === run.revision).length === 0
+      ? ''
+      : `\nWaivers:\n${run.waivers
+          .filter((w) => w.revision === run.revision)
+          .map((w) => `- ${w.reason} (skipped: ${w.missingChecks.join(', ') || 'n/a'})`)
+          .join('\n')}`;
   const heuristic =
     run.risk === 'guarded' && run.riskSource === 'advisory'
       ? '\nRisk detection: heuristic (advisory only). Consider configuring authPaths/apiPaths in .skeg/config.json.'
       : '';
   return [
     `Done: ${run.intent}`,
+    '',
+    `Revision: ${run.revision}`,
     '',
     'Validation:',
     checks,
@@ -266,9 +312,19 @@ export function formatCloseReport(run: RunState): string {
     `Risk: ${run.risk} (${run.riskSource})`,
     `Record: ${records}`,
     heuristic,
-  ].join('\n');
+    waivers,
+  ]
+    .filter((line) => line !== undefined)
+    .join('\n');
 }
 
-function touch(run: RunState): RunState {
-  return { ...run, updatedAt: new Date().toISOString() };
+/**
+ * 当前 pending gate（若有）。
+ * @param run 当前状态
+ * @returns gate 或 undefined
+ */
+export function getPendingGate(run: RunState): Gate | undefined {
+  return run.pendingGate && !run.pendingGate.resolved
+    ? run.pendingGate
+    : undefined;
 }

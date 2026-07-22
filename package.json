@@ -1,6 +1,6 @@
 {
-  "name": "skeg",
-  "version": "0.3.3",
+  "name": "@gchigoo/skeg",
+  "version": "0.5.0",
   "description": "Minimal engineering workflow for coding agents. Stay light. Hold course.",
   "type": "module",
   "keywords": [
@@ -14,7 +14,9 @@
     "prompts",
     "src",
     "templates",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "pi": {
     "extensions": [
@@ -29,13 +31,14 @@
     "dogfood": "node --experimental-strip-types dogfood/run.ts",
     "smoke": "node dogfood/pi-smoke.mjs",
     "dogfood:host": "node dogfood/host-dogfood.mjs",
+    "dogfood:adversarial": "node --experimental-strip-types dogfood/adversarial.mjs",
     "check:budgets": "node scripts/check-budgets.mjs",
     "check:loc": "node scripts/check-budgets.mjs --loc",
     "typecheck": "tsc --noEmit",
-    "verify": "npm test && npm run typecheck && npm run check:budgets && npm run dogfood"
+    "verify": "npm test && npm run typecheck && npm run check:budgets && npm run dogfood:adversarial && npm run dogfood"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": ">=0.80.0 <0.90.0"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.80.10",

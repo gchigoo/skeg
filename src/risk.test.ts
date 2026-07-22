@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { DEFAULT_CONFIG } from './config.ts';
 import {
+  commandFingerprint,
   detectDangerousCommand,
   detectPathRisks,
   findExportSymbolChanges,
   findSensitiveKeywords,
+  gateAcknowledgementKey,
   scanSensitiveKeywords,
   scanToolCall,
 } from './risk.ts';
@@ -83,10 +85,29 @@ describe('detectDangerousCommand', () => {
     const hit = detectDangerousCommand('rm -rf /tmp/foo');
     assert.ok(hit);
     assert.equal(hit?.trigger, 'dangerousCommand');
+    assert.ok(hit?.fingerprint);
   });
 
   it('allows safe commands', () => {
     assert.equal(detectDangerousCommand('pnpm test'), null);
+  });
+
+  it('gives distinct acknowledgement keys for different dangerous commands', () => {
+    const a = detectDangerousCommand('rm -rf /tmp/foo');
+    const b = detectDangerousCommand('git push --force origin main');
+    assert.ok(a && b);
+    assert.notEqual(
+      gateAcknowledgementKey(a!),
+      gateAcknowledgementKey(b!),
+    );
+  });
+
+  it('reuses acknowledgement key for the same normalized command', () => {
+    const a = detectDangerousCommand('rm -rf /tmp/foo');
+    const b = detectDangerousCommand('rm  -rf   /tmp/foo');
+    assert.ok(a && b);
+    assert.equal(gateAcknowledgementKey(a!), gateAcknowledgementKey(b!));
+    assert.equal(commandFingerprint('rm -rf /tmp/foo'), a!.fingerprint);
   });
 });
 

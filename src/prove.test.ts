@@ -39,7 +39,7 @@ describe('analyzeProveSnapshot', () => {
     assert.match(diff?.evidence ?? '', /logout\.ts/);
   });
 
-  it('flags sensitive keywords and requests guarded upgrade', () => {
+  it('raises sensitive-keywords as signal not failed check', () => {
     const run = createRun('fix logout cache');
     const analysis = analyzeProveSnapshot(
       {
@@ -50,33 +50,38 @@ describe('analyzeProveSnapshot', () => {
       run,
       DEFAULT_CONFIG,
     );
-    const sens = analysis.checks.find((c) => c.name === 'sensitive-keywords');
-    assert.equal(sens?.passed, false);
+    assert.equal(
+      analysis.checks.some((c) => c.name === 'sensitive-keywords'),
+      false,
+    );
+    const sens = analysis.signals.find((s) => s.trigger === 'sensitive-keywords');
+    assert.ok(sens);
     assert.equal(analysis.upgradeGuarded, true);
     assert.match(sens?.evidence ?? '', /session/);
   });
 
-  it('skips sensitive scan when authPaths configured', () => {
+  it('skips sensitive signal when authPaths configured', () => {
     const run = createRun('x');
     const analysis = analyzeProveSnapshot(
       { available: true, files: ['a.ts'], diff: SAMPLE_DIFF },
       run,
       { ...DEFAULT_CONFIG, authPaths: ['src/auth/**'] },
     );
-    const sens = analysis.checks.find((c) => c.name === 'sensitive-keywords');
-    assert.equal(sens?.passed, true);
-    assert.match(sens?.evidence ?? '', /skipped/);
+    assert.equal(
+      analysis.signals.some((s) => s.trigger === 'sensitive-keywords'),
+      false,
+    );
   });
 
-  it('flags export symbol changes when apiPaths empty', () => {
+  it('raises public-api-export signal when apiPaths empty', () => {
     const run = createRun('x');
     const analysis = analyzeProveSnapshot(
       { available: true, files: ['src/auth/logout.ts'], diff: SAMPLE_DIFF },
       run,
       DEFAULT_CONFIG,
     );
-    const api = analysis.checks.find((c) => c.name === 'public-api-export');
-    assert.equal(api?.passed, false);
+    const api = analysis.signals.find((s) => s.trigger === 'public-api-export');
+    assert.ok(api);
     assert.match(api?.evidence ?? '', /export/);
   });
 
@@ -93,13 +98,14 @@ describe('analyzeProveSnapshot', () => {
 });
 
 describe('runProveChecks', () => {
-  it('writes checks onto run via injected git', () => {
+  it('writes checks and signals onto run via injected git', () => {
     const run = createRun('fix avatar');
     const { run: next, notes } = runProveChecks(
       '/tmp/fake',
       run,
       DEFAULT_CONFIG,
       (_cwd, args) => {
+        if (args[0] === 'rev-parse') return 'abc123\n';
         if (args[0] === 'status') return ' M src/auth/logout.ts\n';
         if (args.includes('--name-only')) return 'src/auth/logout.ts\n';
         return SAMPLE_DIFF;
@@ -107,9 +113,8 @@ describe('runProveChecks', () => {
     );
     assert.equal(next.phase, 'prove');
     assert.ok(next.checks.some((c) => c.name === 'diff'));
-    assert.ok(next.checks.some((c) => c.name === 'sensitive-keywords'));
+    assert.ok(next.signals.some((s) => s.trigger === 'sensitive-keywords'));
     assert.equal(next.risk, 'guarded');
-    assert.equal(next.riskSource, 'advisory');
     assert.ok(notes.length > 0);
   });
 });
@@ -121,6 +126,7 @@ describe('healChangedFilesFromGit', () => {
     const next = healChangedFilesFromGit('/tmp/fake', run, (_cwd, args) => {
       if (args[0] === 'status') return ' M .gitignore\n';
       if (args.includes('--name-only')) return '.gitignore\n';
+      if (args[0] === 'rev-parse') return 'abc\n';
       return '';
     });
     assert.equal(next.phase, 'change');

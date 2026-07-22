@@ -1,46 +1,30 @@
 /**
- * Skeg Pi 适配层：事件钩子 + 四个核心命令。
+ * Skeg Pi 适配层：事件钩子 + 命令注册。
  * 机制逻辑在 src/，本文件只做宿主桥接。
  */
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-} from '@earendil-works/pi-coding-agent';
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import { captureBaseline, reconcileAgainstBaseline } from '../src/baseline.ts';
 import { buildCommandCheck, classifyCheckCommand } from '../src/checks.ts';
-import { loadConfig } from '../src/config.ts';
+import { handleCommand, notifyDiagnostics } from '../src/commands.ts';
+import {
+  loadConfig,
+  loadConfigWithDiagnostics,
+} from '../src/config.ts';
+import { classifyBashEffect, isMutatingEffect } from '../src/effects.ts';
 import { buildInjectContext } from '../src/inject.ts';
-import { initSkeg } from '../src/init.ts';
+import { PendingMutationTable } from '../src/pending.ts';
+import { toWorkspacePath } from '../src/paths.ts';
+import { healChangedFilesFromGit, runProveChecks } from '../src/prove.ts';
+import { reduce, sameState, type SkegEvent } from '../src/reducer.ts';
 import {
-  extractBashWritePaths,
-  isBashFileWrite,
-} from '../src/paths.ts';
-import {
-  healChangedFilesFromGit,
-  runProveChecks,
-} from '../src/prove.ts';
-import { createRecord, parseRecordArgs } from '../src/record.ts';
-import {
-  detectPathRisks,
+  actionFingerprint,
+  gateAcknowledgementKey,
   pathsFromToolCall,
+  requiresBlock,
   requiresGate,
   scanToolCall,
 } from '../src/risk.ts';
-import {
-  addChangedFiles,
-  addRecordId,
-  applyRiskHit,
-  clearResolvedGate,
-  closeRun,
-  createRun,
-  formatCloseReport,
-  formatStatus,
-  hasCliFlag,
-  isOpenRun,
-  latestRunFromEntries,
-  resolveGate,
-  setPhase,
-  upsertCheck,
-} from '../src/run.ts';
+import { isOpenRun, latestRunFromEntries } from '../src/run.ts';
 import { RUN_ENTRY_TYPE, type RunState, type SkegConfig } from '../src/types.ts';
 
 /**
@@ -50,32 +34,54 @@ import { RUN_ENTRY_TYPE, type RunState, type SkegConfig } from '../src/types.ts'
 export default function (pi: ExtensionAPI) {
   let run: RunState | null = null;
   let config: SkegConfig = loadConfig(process.cwd());
-  /** 本 session 已确认的 trigger:path，避免同一次迁移反复弹 gate */
   const acknowledged = new Set<string>();
+  const pendingMutations = new PendingMutationTable();
+  let queue: Promise<void> = Promise.resolve();
 
-  const persist = (next: RunState) => {
-    run = next;
-    pi.appendEntry(RUN_ENTRY_TYPE, next);
+  const dispatch = (event: SkegEvent): Promise<void> => {
+    queue = queue.then(() => {
+      const next = reduce(run, event);
+      if (!sameState(run, next)) {
+        run = next;
+        pi.appendEntry(RUN_ENTRY_TYPE, next);
+      }
+    });
+    return queue;
   };
 
-  const reloadConfig = (cwd: string) => {
-    config = loadConfig(cwd);
+  const commandDeps = {
+    getRun: () => run,
+    setRun: (next: RunState | null) => {
+      run = next;
+    },
+    getConfig: () => config,
+    setConfig: (next: SkegConfig) => {
+      config = next;
+    },
+    dispatch,
+    appendEntry: (type: string, data: RunState) => pi.appendEntry(type, data),
+    clearSession: () => {
+      acknowledged.clear();
+      pendingMutations.clear();
+    },
+    getEntries: () => [] as Array<{ type?: string; customType?: string; data?: unknown }>,
   };
-
-  const gateKey = (trigger: string, path: string) => `${trigger}:${path}`;
 
   pi.on('session_start', async (_event, ctx) => {
-    reloadConfig(ctx.cwd);
+    const loaded = loadConfigWithDiagnostics(ctx.cwd);
+    config = loaded.config;
+    notifyDiagnostics(ctx.ui, loaded.diagnostics);
     run = latestRunFromEntries(ctx.sessionManager.getEntries());
+    commandDeps.getEntries = () => ctx.sessionManager.getEntries();
   });
 
   pi.on('before_agent_start', async (event, ctx) => {
-    reloadConfig(ctx.cwd);
-    if (!run) {
-      run = latestRunFromEntries(ctx.sessionManager.getEntries());
-    }
+    const loaded = loadConfigWithDiagnostics(ctx.cwd);
+    config = loaded.config;
+    notifyDiagnostics(ctx.ui, loaded.diagnostics);
+    if (!run) run = latestRunFromEntries(ctx.sessionManager.getEntries());
+    commandDeps.getEntries = () => ctx.sessionManager.getEntries();
 
-    // Prompt template（如 /fix）带 <!-- skeg:run --> 时自动开跑
     const prompt = event.prompt ?? '';
     if (!isOpenRun(run) && prompt.includes('<!-- skeg:run -->')) {
       const intent = prompt
@@ -84,98 +90,153 @@ export default function (pi: ExtensionAPI) {
         .trim()
         .slice(0, 240);
       if (intent) {
-        persist(createRun(intent, config.defaultPolicy));
+        await dispatch({
+          type: 'RUN_STARTED',
+          intent,
+          risk: config.defaultPolicy,
+          baseline: captureBaseline(ctx.cwd),
+        });
         acknowledged.clear();
+        pendingMutations.clear();
       }
     }
 
     const content = buildInjectContext(run, config, ctx.cwd);
-    return {
-      message: {
-        customType: 'skeg/context',
-        content,
-        display: false,
-      },
-    };
+    const base = event.systemPrompt ?? '';
+    return { systemPrompt: base ? `${base}\n\n${content}` : content };
   });
-
-  /** 记账文件变更并推进 orient → change */
-  const noteFileChanges = (paths: string[]) => {
-    if (paths.length === 0 || !isOpenRun(run)) return;
-    let next = addChangedFiles(run!, paths);
-    if (next.phase === 'orient') next = setPhase(next, 'change');
-    persist(next);
-  };
 
   pi.on('tool_call', async (event, ctx) => {
     if (!isOpenRun(run)) return undefined;
-
-    if (run!.pendingGate?.resolved) {
-      persist(clearResolvedGate(run!));
-    }
+    if (run!.pendingGate?.resolved) await dispatch({ type: 'GATE_CLEARED' });
 
     const input = event.input as Record<string, unknown>;
     const tool = event.toolName.toLowerCase();
+    const toolCallId =
+      (event as { toolCallId?: string }).toolCallId ??
+      `anon_${Date.now().toString(36)}`;
 
-    // 写工具在 tool_call 即记账（tool_result 偶发漏路径时的权威补充）
     if (tool === 'write' || tool === 'edit') {
-      noteFileChanges(pathsFromToolCall(event.toolName, input));
+      const expectedPaths: string[] = [];
+      for (const p of pathsFromToolCall(event.toolName, input)) {
+        const wp = toWorkspacePath(ctx.cwd, p);
+        if (wp.outsideWorkspace || wp.relativePath.startsWith('.git/')) {
+          return {
+            block: true,
+            reason: `Skeg blocked write outside workspace or .git: ${p}`,
+          };
+        }
+        expectedPaths.push(wp.relativePath);
+      }
+      pendingMutations.set({
+        toolCallId,
+        expectedPaths,
+        effect: { kind: tool as 'write' | 'edit' },
+      });
     }
 
-    const hits = scanToolCall(event.toolName, input, config);
-    if (hits.length === 0) return undefined;
+    if (tool === 'bash' && typeof input.command === 'string') {
+      const effect = classifyBashEffect(input.command);
+      if (effect.kind === 'read') return undefined;
+      const expectedPaths =
+        effect.kind === 'file-mutation' || effect.kind === 'dependency-mutation'
+          ? effect.paths.map((p) => toWorkspacePath(ctx.cwd, p).relativePath)
+          : [];
+      if (isMutatingEffect(effect) || effect.kind === 'unknown') {
+        pendingMutations.set({ toolCallId, expectedPaths, effect });
+      }
+    }
 
-    const hit = hits[0];
-    if (!requiresGate(hit.trigger)) return undefined;
+    const gatedHits = scanToolCall(event.toolName, input, config).filter((h) =>
+      requiresGate(h.trigger, config),
+    );
+    if (gatedHits.length === 0) return undefined;
 
-    const key = gateKey(hit.trigger, hit.path || '');
-    if (acknowledged.has(key)) return undefined;
+    const blocked = gatedHits.find((h) => requiresBlock(h.trigger, config));
+    if (blocked) {
+      return {
+        block: true,
+        reason: `Skeg blocked (${blocked.trigger}): ${blocked.reason}`,
+      };
+    }
 
-    persist(applyRiskHit(run!, hit));
+    const fp = actionFingerprint(gatedHits, event.toolName, input);
+    if (
+      gatedHits.every((h) => acknowledged.has(gateAcknowledgementKey(h))) ||
+      acknowledged.has(fp)
+    ) {
+      return undefined;
+    }
 
-    const title = `Skeg gate: ${hit.trigger}`;
-    const body = `${hit.reason}\n\nAllow this action and continue in guarded mode?`;
+    await dispatch({
+      type: 'GATE_OPENED',
+      gate: {
+        hits: gatedHits,
+        actionFingerprint: fp,
+        scope: 'call',
+        trigger: gatedHits[0].trigger,
+        reason: gatedHits.map((h) => `- ${h.trigger}: ${h.reason}`).join('\n'),
+        path: gatedHits[0].path || undefined,
+      },
+    });
+
+    const title = `Skeg gate: ${gatedHits.map((h) => h.trigger).join(', ')}`;
+    const body = [
+      'Skeg blocked this action.',
+      '',
+      'Detected:',
+      ...gatedHits.map((h) => `- ${h.trigger}: ${h.reason}`),
+      '',
+      'Allow this exact action?',
+    ].join('\n');
 
     if (!ctx.hasUI) {
       return {
         block: true,
-        reason: `Skeg blocked (${hit.trigger}): ${hit.reason}`,
+        reason: `Skeg blocked (${gatedHits[0].trigger}): ${gatedHits[0].reason}`,
       };
     }
 
     const ok = await ctx.ui.confirm(title, body);
     if (!ok) {
+      await dispatch({ type: 'GATE_RESOLVED', approved: false });
       return {
         block: true,
-        reason: `Skeg gate denied: ${hit.trigger}`,
+        reason: `Skeg gate denied: ${gatedHits.map((h) => h.trigger).join(', ')}`,
       };
     }
 
-    acknowledged.add(key);
-    persist(resolveGate(run!));
+    for (const h of gatedHits) acknowledged.add(gateAcknowledgementKey(h));
+    acknowledged.add(fp);
+    await dispatch({ type: 'GATE_RESOLVED', approved: true });
     return undefined;
   });
 
   pi.on('tool_result', async (event, ctx) => {
     if (!isOpenRun(run)) return undefined;
-    // 同 turn 内 agent 改过 config.json 时，立即用新 checks.commands 记账
-    reloadConfig(ctx.cwd);
+    config = loadConfig(ctx.cwd);
 
-    const tool = event.toolName.toLowerCase();
-    if (tool === 'write' || tool === 'edit') {
-      noteFileChanges(
-        pathsFromToolCall(
-          event.toolName,
-          event.input as Record<string, unknown>,
-        ),
-      );
+    const toolCallId = (event as { toolCallId?: string }).toolCallId ?? '';
+    const pending = toolCallId ? pendingMutations.take(toolCallId) : undefined;
+
+    if (!event.isError && pending && pending.expectedPaths.length > 0) {
+      const kind = pending.effect.kind;
+      if (
+        kind === 'write' ||
+        kind === 'edit' ||
+        kind === 'file-mutation' ||
+        kind === 'dependency-mutation'
+      ) {
+        await dispatch({
+          type: 'MUTATION_COMMITTED',
+          paths: pending.expectedPaths,
+        });
+      }
     }
 
-    if (tool === 'bash') {
+    if (event.toolName.toLowerCase() === 'bash') {
       const input = event.input as Record<string, unknown>;
       const command = typeof input.command === 'string' ? input.command : '';
-
-      // command check 自动记账（成功/失败都记）
       const classified = classifyCheckCommand(command, config);
       if (classified) {
         const output =
@@ -192,35 +253,24 @@ export default function (pi: ExtensionAPI) {
                   )
                   .join('\n')
               : '';
-        persist(
-          upsertCheck(
-            run!,
-            buildCommandCheck(
-              classified.name,
-              command,
-              !event.isError,
-              output,
-            ),
+        await dispatch({
+          type: 'CHECK_RECORDED',
+          check: buildCommandCheck(
+            classified.name,
+            command,
+            !event.isError,
+            output,
           ),
-        );
-      }
-
-      // bash 成功：写文件命令记账；非写但命中风险路径也记账
-      if (!event.isError) {
-        if (isBashFileWrite(command)) {
-          noteFileChanges(extractBashWritePaths(command));
-        } else {
-          const paths = pathsFromToolCall(event.toolName, input);
-          const risky = paths.flatMap((p) => detectPathRisks(p, config));
-          if (risky.length > 0) noteFileChanges(paths);
-        }
+        });
       }
     }
-
     return undefined;
   });
 
-  pi.on('agent_end', async (_event, ctx) => {
+  const settle = async (ctx: {
+    cwd: string;
+    ui: { notify: (m: string, l: 'info' | 'warning' | 'error') => void };
+  }) => {
     if (!isOpenRun(run)) return;
     if (run!.pendingGate && !run!.pendingGate.resolved) {
       ctx.ui.notify(
@@ -230,17 +280,45 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    // 兜底：tool_result 漏记时用 git 工作区变更推进 phase
-    const healed = healChangedFilesFromGit(ctx.cwd, run!);
-    if (healed !== run) persist(healed);
+    if (run!.baseline?.capturedAt) {
+      const reconciled = reconcileAgainstBaseline(ctx.cwd, run!.baseline);
+      const trulyNew = reconciled.runChanges.filter(
+        (f) => !run!.changedFiles.includes(f),
+      );
+      if (trulyNew.length > 0 || reconciled.headMoved) {
+        await dispatch({
+          type: 'WORKSPACE_RECONCILED',
+          changedFiles: trulyNew,
+          preExistingFiles: reconciled.preExisting,
+          headMoved: reconciled.headMoved,
+        });
+      } else if (reconciled.preExisting.length > 0 && !run!.preExistingFiles) {
+        await dispatch({
+          type: 'WORKSPACE_RECONCILED',
+          changedFiles: [],
+          preExistingFiles: reconciled.preExisting,
+        });
+      }
+    } else {
+      const healed = healChangedFilesFromGit(ctx.cwd, run!);
+      if (!sameState(run, healed)) {
+        run = healed;
+        pi.appendEntry(RUN_ENTRY_TYPE, healed);
+      }
+    }
 
     if (
       (run!.phase === 'change' || run!.phase === 'prove') &&
       run!.changedFiles.length > 0
     ) {
       const proved = runProveChecks(ctx.cwd, run!, config);
-      persist(proved.run);
-      const failed = proved.run.checks.filter((c) => !c.passed);
+      if (!sameState(run, proved.run)) {
+        run = proved.run;
+        pi.appendEntry(RUN_ENTRY_TYPE, proved.run);
+      }
+      const failed = proved.run.checks.filter(
+        (c) => !c.passed && c.revision === proved.run.revision,
+      );
       if (failed.length > 0) {
         ctx.ui.notify(
           `Skeg prove: ${failed.map((c) => c.name).join(', ')} need attention.`,
@@ -250,130 +328,35 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify(`Skeg prove: ${proved.notes.join('; ')}`, 'info');
       }
     }
-  });
+  };
 
+  pi.on('agent_end', async () => {
+    /* telemetry only */
+  });
+  pi.on('agent_settled', async (_event, ctx) => {
+    await settle(ctx);
+  });
   pi.on('session_before_compact', async () => {
     if (run) pi.appendEntry(RUN_ENTRY_TYPE, run);
   });
 
-  pi.registerCommand('init', {
-    description: 'Initialize .skeg/project.md and config.json',
-    handler: async (args, ctx: ExtensionCommandContext) => {
-      const force = hasCliFlag(args, '--force');
-      const result = initSkeg(ctx.cwd, force);
-      reloadConfig(ctx.cwd);
-      ctx.ui.notify(result.message, 'info');
-    },
-  });
+  for (const name of ['init', 'run', 'status', 'finish', 'record'] as const) {
+    pi.registerCommand(name, {
+      description: `Skeg ${name}`,
+      handler: async (args, ctx) => {
+        commandDeps.getEntries = () => ctx.sessionManager.getEntries();
+        await handleCommand(name, args || '', ctx, commandDeps);
+      },
+    });
+  }
 
-  pi.registerCommand('run', {
-    description: 'Start or resume a Skeg run',
-    handler: async (args, ctx: ExtensionCommandContext) => {
-      reloadConfig(ctx.cwd);
+  pi.registerCommand('skeg', {
+    description: 'Skeg: init|start|status|finish|record',
+    handler: async (args, ctx) => {
+      commandDeps.getEntries = () => ctx.sessionManager.getEntries();
       const text = (args || '').trim();
-
-      // /run --abandon：仅当参数以 --abandon 开头（避免 intent 正文误伤）
-      if (text === '--abandon' || text.startsWith('--abandon ')) {
-        if (!isOpenRun(run)) {
-          ctx.ui.notify('No open run to abandon.', 'info');
-          return;
-        }
-        persist(closeRun(run!, 'abandoned'));
-        ctx.ui.notify(`Abandoned run: ${run!.intent}`, 'info');
-        return;
-      }
-
-      if (isOpenRun(run)) {
-        ctx.ui.notify(
-          `Open run exists:\n${formatStatus(run)}\n\nUse /finish, or /run --abandon, before starting another.`,
-          'warning',
-        );
-        return;
-      }
-
-      if (!text) {
-        ctx.ui.notify('Usage: /run <intent>', 'error');
-        return;
-      }
-
-      acknowledged.clear();
-      const next = createRun(text, config.defaultPolicy);
-      persist(next);
-      ctx.ui.notify(
-        `Started run (${next.risk}): ${next.intent}\nPhases: Orient → Change → Prove → Close`,
-        'info',
-      );
-    },
-  });
-
-  pi.registerCommand('status', {
-    description: 'Show current Skeg run status',
-    handler: async (_args, ctx: ExtensionCommandContext) => {
-      if (!run) {
-        run = latestRunFromEntries(ctx.sessionManager.getEntries());
-      }
-      ctx.ui.notify(formatStatus(run), 'info');
-    },
-  });
-
-  pi.registerCommand('finish', {
-    description: 'Close the current Skeg run after prove',
-    handler: async (args, ctx: ExtensionCommandContext) => {
-      if (!isOpenRun(run)) {
-        ctx.ui.notify('No open run to finish.', 'info');
-        return;
-      }
-
-      if (hasCliFlag(args, '--abandon')) {
-        persist(closeRun(run!, 'abandoned'));
-        ctx.ui.notify(`Abandoned: ${run!.intent}`, 'info');
-        return;
-      }
-
-      if (run!.pendingGate && !run!.pendingGate.resolved) {
-        ctx.ui.notify(
-          `Cannot finish: pending gate (${run!.pendingGate.trigger}). Resolve it or /finish --abandon.`,
-          'warning',
-        );
-        return;
-      }
-
-      const proved = runProveChecks(ctx.cwd, run!, config);
-      persist(proved.run);
-      const closed = closeRun(setPhase(proved.run, 'close'), 'done');
-      persist(closed);
-      ctx.ui.notify(formatCloseReport(closed), 'info');
-    },
-  });
-
-  pi.registerCommand('record', {
-    description: 'Persist a long-lived record under .skeg/records/',
-    handler: async (args, ctx: ExtensionCommandContext) => {
-      const parsed = parseRecordArgs(args || '');
-      if (!parsed.ok) {
-        ctx.ui.notify(parsed.error, 'error');
-        return;
-      }
-
-      if (!run) {
-        run = latestRunFromEntries(ctx.sessionManager.getEntries());
-      }
-
-      const created = createRecord(ctx.cwd, {
-        type: parsed.type,
-        title: parsed.title,
-        body: parsed.body,
-        run,
-      });
-
-      if (run) {
-        persist(addRecordId(run, created.id));
-      }
-
-      ctx.ui.notify(
-        `Recorded ${created.id} (${created.type}): ${created.relativePath}`,
-        'info',
-      );
+      const match = text.match(/^(\S+)\s*([\s\S]*)$/);
+      await handleCommand(match?.[1] ?? '', match?.[2] ?? '', ctx, commandDeps);
     },
   });
 }

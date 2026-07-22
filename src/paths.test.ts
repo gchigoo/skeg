@@ -7,6 +7,7 @@ import {
   extractBashWritePaths,
   isBashFileWrite,
   pathMatchCandidates,
+  toWorkspacePath,
 } from './paths.ts';
 
 describe('isBashFileWrite', () => {
@@ -61,5 +62,18 @@ describe('pathMatchCandidates', () => {
   it('includes relative suffixes for absolute windows paths', () => {
     const c = pathMatchCandidates('D:/Projects/ado/package.json');
     assert.ok(c.includes('package.json'));
+  });
+});
+
+describe('toWorkspacePath', () => {
+  it('normalizes relative paths and resolves ..', () => {
+    const r = toWorkspacePath('/proj', 'src/../.env');
+    assert.equal(r.relativePath, '.env');
+    assert.equal(r.outsideWorkspace, false);
+  });
+
+  it('flags paths outside workspace', () => {
+    const r = toWorkspacePath('/proj', '/other/secret');
+    assert.equal(r.outsideWorkspace, true);
   });
 });

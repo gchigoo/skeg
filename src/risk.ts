@@ -95,6 +95,21 @@ export function detectPathRisks(path: string, config: SkegConfig): RiskHit[] {
 }
 
 /**
+ * 归一化命令后取短指纹（压缩空白、统一换行）。
+ * @param command 原始命令
+ * @returns 8 位 hex 指纹
+ */
+export function commandFingerprint(command: string): string {
+  const normalized = command.replace(/\r\n/g, '\n').replace(/\s+/g, ' ').trim();
+  let hash = 2166136261;
+  for (let i = 0; i < normalized.length; i += 1) {
+    hash ^= normalized.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
  * 检测危险 bash 命令。
  * @param command bash 命令
  * @returns 命中或 null
@@ -106,11 +121,26 @@ export function detectDangerousCommand(command: string): RiskHit | null {
         trigger: 'dangerousCommand',
         strength: 'deterministic',
         path: '',
+        fingerprint: commandFingerprint(command),
         reason: `Dangerous command matched ${pattern}: ${command.slice(0, 120)}`,
       };
     }
   }
   return null;
+}
+
+/**
+ * 构造 gate acknowledgement key。
+ * 危险命令用 fingerprint，避免空 path 导致一次确认放行全部危险命令。
+ * @param hit 风险命中
+ * @returns acknowledgement key
+ */
+export function gateAcknowledgementKey(hit: RiskHit): string {
+  if (hit.trigger === 'dangerousCommand') {
+    const fp = hit.fingerprint || commandFingerprint(hit.reason);
+    return `${hit.trigger}:${fp}`;
+  }
+  return `${hit.trigger}:${hit.path || ''}`;
 }
 
 /**
@@ -149,18 +179,53 @@ export function scanToolCall(
 
 /**
  * 判断命中是否需要拦截确认（gate）。
+ * 读取 config.policies[trigger].action：confirm/block → true；observe/ignore → false。
  * @param trigger trigger id
+ * @param config 可选配置；缺省时全部 confirm
  * @returns 是否需要 gate
  */
-export function requiresGate(trigger: TriggerId): boolean {
-  return (
-    trigger === 'protectedPaths' ||
-    trigger === 'dangerousCommand' ||
-    trigger === 'databaseMigration' ||
-    trigger === 'dependencyChange' ||
-    trigger === 'publicApiChange' ||
-    trigger === 'authChange'
-  );
+export function requiresGate(
+  trigger: TriggerId,
+  config?: SkegConfig,
+): boolean {
+  const action = config?.policies?.[trigger]?.action;
+  if (!action) return true;
+  return action === 'confirm' || action === 'block';
+}
+
+/**
+ * 判断命中是否应硬性拦截（block，无确认放行）。
+ * @param trigger trigger id
+ * @param config 配置
+ * @returns 是否 block
+ */
+export function requiresBlock(
+  trigger: TriggerId,
+  config?: SkegConfig,
+): boolean {
+  return config?.policies?.[trigger]?.action === 'block';
+}
+
+/**
+ * 构造多 hit gate 的 action fingerprint。
+ * @param hits 命中列表
+ * @param toolName 工具名
+ * @param input 工具参数
+ * @returns fingerprint
+ */
+export function actionFingerprint(
+  hits: RiskHit[],
+  toolName: string,
+  input: Record<string, unknown>,
+): string {
+  const parts = hits.map((hit) => {
+    if (hit.trigger === 'dangerousCommand') {
+      return `${hit.trigger}:${hit.fingerprint || commandFingerprint(String(input.command ?? hit.reason))}`;
+    }
+    if (hit.path) return `${hit.trigger}:${normalizePath(hit.path)}`;
+    return `${hit.trigger}:${toolName}`;
+  });
+  return parts.sort().join('|');
 }
 
 const SENSITIVE_KEYWORD_RE =

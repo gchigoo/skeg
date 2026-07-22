@@ -1,6 +1,7 @@
 /**
  * 路径归一化与 glob 匹配（仅支持 * 与 **，满足风险检测需要）。
  */
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 /**
  * 将路径统一为正斜杠、去掉前导 ./。
@@ -9,6 +10,54 @@
  */
 export function normalizePath(path: string): string {
   return path.replace(/\\/g, '/').replace(/^\.\//, '');
+}
+
+export type WorkspacePathResult = {
+  relativePath: string;
+  outsideWorkspace: boolean;
+  absolutePath: string;
+};
+
+/**
+ * 将任意输入路径转为 workspace-relative canonical path。
+ * @param cwd 工作区根
+ * @param inputPath 输入路径
+ * @returns 相对路径与是否越界
+ */
+export function toWorkspacePath(
+  cwd: string,
+  inputPath: string,
+): WorkspacePathResult {
+  const workspaceRoot = resolve(cwd);
+  const absolutePath = isAbsolute(inputPath)
+    ? resolve(inputPath)
+    : resolve(workspaceRoot, inputPath);
+  const rel = relative(workspaceRoot, absolutePath);
+  const outsideWorkspace =
+    rel.startsWith('..') || isAbsolute(rel) || rel === '';
+  // rel === '' 表示就是根目录本身，不算 outside
+  const reallyOutside =
+    rel.startsWith(`..${sep}`) ||
+    rel === '..' ||
+    (isAbsolute(rel) && normalizePath(rel) !== normalizePath(workspaceRoot));
+  const relativePath = reallyOutside
+    ? normalizePath(absolutePath)
+    : normalizePath(rel === '' ? '.' : rel);
+  return {
+    relativePath,
+    outsideWorkspace: reallyOutside,
+    absolutePath: normalizePath(absolutePath),
+  };
+}
+
+/**
+ * 批量规范化到工作区相对路径（越界保留绝对形式）。
+ * @param cwd 工作区根
+ * @param paths 输入路径
+ * @returns 相对路径列表
+ */
+export function toWorkspacePaths(cwd: string, paths: string[]): string[] {
+  return paths.map((p) => toWorkspacePath(cwd, p).relativePath);
 }
 
 /**

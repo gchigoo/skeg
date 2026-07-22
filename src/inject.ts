@@ -1,8 +1,12 @@
 /**
- * 构建 before_agent_start 注入文本，目标 ≤ 800 tokens。
+ * 构建 before_agent_start 注入文本，目标 ≤ 500 tokens（M3 随 record 相关性收至 300）。
  */
+
+/** 注入硬预算（tokens）；v0.5 与 record 相关性加载同版收至 300 */
+export const INJECT_TOKEN_BUDGET = 300;
 import { loadProjectSummary } from './config.ts';
-import { listRecords } from './record.ts';
+import { selectRelevantRecords } from './record.ts';
+import { currentChecks, hasFreshPass } from './run.ts';
 import type { Phase, RunState, SkegConfig } from './types.ts';
 
 /** standard guidance 注入的 records 索引条数上限。 */
@@ -62,33 +66,42 @@ export function buildInjectContext(
     ].join('\n');
   }
 
-  const pending = run.checks.filter((c) => !c.passed).map((c) => c.name);
+  const fresh = currentChecks(run);
+  const pending = fresh.filter((c) => !c.passed).map((c) => c.name);
   const expected =
     run.risk === 'guarded' ? config.checks.guarded : config.checks.default;
-  const missing = expected.filter(
-    (name) => !run.checks.some((c) => c.name === name && c.passed),
-  );
+  const signalRequired = run.signals
+    .filter((s) => s.revision === run.revision)
+    .flatMap((s) => s.requiredChecks ?? []);
+  const required = [...new Set([...expected, ...signalRequired])];
+  const missing = required.filter((name) => !hasFreshPass(run, name));
 
   const compact = config.guidance === 'compact';
 
   const lines = [
     'Skeg run (compact):',
     `Intent: ${run.intent}`,
-    `Phase: ${run.phase} | Risk: ${run.risk} (${run.riskSource}) | Status: ${run.status}`,
+    `Phase: ${run.phase} | Revision: ${run.revision} | Risk: ${run.risk} (${run.riskSource}) | Status: ${run.status}`,
     `Changed: ${run.changedFiles.slice(0, 12).join(', ') || '(none)'}`,
-    `Checks done: ${run.checks.map((c) => `${c.name}:${c.passed ? 'ok' : 'fail'}`).join(', ') || '(none)'}`,
+    `Checks done: ${fresh.map((c) => `${c.name}:${c.passed ? 'ok' : 'fail'}`).join(', ') || '(none)'}`,
     `Checks due: ${missing.join(', ') || '(none)'}`,
+    `Rule: evidence must match revision ${run.revision}`,
   ];
+
+  const signals = run.signals.filter((s) => s.revision === run.revision);
+  if (signals.length > 0) {
+    lines.push(`Signals: ${signals.map((s) => s.trigger).join(', ')}`);
+  }
 
   if (run.pendingGate && !run.pendingGate.resolved) {
     lines.push(
-      `PENDING GATE: ${run.pendingGate.trigger} — ${run.pendingGate.reason}`,
+      `PENDING GATE: ${run.pendingGate.trigger} — ${run.pendingGate.reason.split('\n')[0]}`,
     );
   }
 
   if (!compact) {
     lines.push(
-      'Rules: prove with evidence; no design docs by default; escalate only on risk.',
+      'Rules: prove with fresh evidence; no design docs by default; escalate only on risk.',
     );
     lines.push(phaseHint(run.phase, missing));
     if (pending.length > 0) {
@@ -99,9 +112,14 @@ export function buildInjectContext(
       lines.push('Project:');
       lines.push(summary);
     }
-    const records = listRecords(cwd, RECORDS_INDEX_LIMIT);
+    const records = selectRelevantRecords(
+      cwd,
+      run.intent,
+      run.changedFiles,
+      RECORDS_INDEX_LIMIT,
+    );
     if (records.length > 0) {
-      lines.push('Records (.skeg/records/):');
+      lines.push('Records (relevant):');
       for (const rec of records) {
         lines.push(`${rec.id} ${rec.title}`);
       }
@@ -111,8 +129,7 @@ export function buildInjectContext(
   }
 
   let text = lines.join('\n');
-  // 硬裁剪，保证注入预算
-  while (estimateTokens(text) > 800 && lines.length > 6) {
+  while (estimateTokens(text) > INJECT_TOKEN_BUDGET && lines.length > 6) {
     lines.pop();
     text = lines.join('\n');
   }

@@ -24,32 +24,37 @@ pi install /absolute/path/to/skeg
 pi install -l ./path/to/skeg
 ```
 
+Package name: `@gchigoo/skeg` (Pi peer: `@earendil-works/pi-coding-agent` `>=0.80.0 <0.90.0`).
+
 In a repo:
 
 ```
-/init
-/run fix redirect query loss after login
-/status
-/record incident Avatar cache | clear current-user query on logout
-/finish
+/skeg init
+/skeg start fix redirect query loss after login
+/skeg status
+/skeg record incident Avatar cache | clear current-user query on logout
+/skeg finish
 ```
+
+Flat aliases (`/init` `/run` `/status` `/finish` `/record`) remain for compatibility.
 
 Prompt template:
 
 ```
-/fix user still sees old avatar after logout
+/skeg-fix user still sees old avatar after logout
 ```
+
+(`/fix` still works.)
 
 ## Status
 
-**v0.3.3 ready** — 稳定性收束：host dogfood 唯一 marker 覆盖 protected/auth；`--dump-events`/`--repeat`；`node --experimental-strip-types --test` 启发式；同模型 3×13/13 + 跨模型 13/13。
+**v0.5.0** — No False Green：revision/stale evidence、closure evaluator、baseline 归因、effect classifier、多 hit gate、`/skeg` 命名空间、对抗不变量 dogfood、分发与 CI。
 
 ```bash
 npm run verify
 npm run smoke
+npm run dogfood:adversarial
 npm run dogfood:host -- --cwd . --profile skeg
-npm run dogfood:host -- --cwd /path/to/real-project --profile Blog
-node dogfood/organic-runs.mjs --cwd /path/to/project --name <label>
 ```
 
 ## Config highlights
@@ -57,6 +62,10 @@ node dogfood/organic-runs.mjs --cwd /path/to/project --name <label>
 ```json
 {
   "guidance": "standard",
+  "policies": {
+    "dangerousCommand": { "risk": "guarded", "action": "confirm" },
+    "dependencyChange": { "risk": "guarded", "action": "confirm" }
+  },
   "checks": {
     "default": ["targeted-test", "diff"],
     "guarded": ["test", "typecheck", "lint", "diff"],
@@ -65,16 +74,16 @@ node dogfood/organic-runs.mjs --cwd /path/to/project --name <label>
 }
 ```
 
-- bash `pnpm test src/foo.test.ts` → 自动记 `targeted-test`
-- `guidance: "compact"` → 注入仅状态行
+- 成功修改工作区 → `revision+1`，旧 checks 变 stale；`/finish` 只接受当前 revision 证据
+- `/skeg finish --waive "reason"` 显式承担风险
+- `cat migrations/*.sql` 为 read，不记变更、不弹 gate
 
 ## Develop
 
 ```bash
 npm install
-npm run verify    # test + typecheck + budgets + dogfood
+npm run verify    # test + typecheck + budgets + adversarial + dogfood
 npm run smoke     # Pi 实机抽测（需本机已装 pi）
-npm run dogfood:host -- --cwd /path/to/real-project --profile <name>
 ```
 
-Design notes (`DESIGN.md` / `NON_GOALS.md` / `CHANGELOG.md`) and dogfood reports stay local (gitignored).
+See `DESIGN.md`, `NON_GOALS.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`.

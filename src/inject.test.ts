@@ -4,17 +4,24 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { DEFAULT_CONFIG } from './config.ts';
-import { buildInjectContext, estimateTokens } from './inject.ts';
+import {
+  INJECT_TOKEN_BUDGET,
+  buildInjectContext,
+  estimateTokens,
+} from './inject.ts';
 import { createRecord } from './record.ts';
 import { createRun, upsertCheck } from './run.ts';
 import type { SkegConfig } from './types.ts';
 
 describe('buildInjectContext', () => {
-  it('stays under 800 tokens for a typical run', () => {
+  it('stays under inject budget for a typical run', () => {
     const run = createRun('fix logout avatar cache after sign out');
     run.changedFiles = ['src/auth/logout.ts', 'src/auth/logout.test.ts'];
     const text = buildInjectContext(run, DEFAULT_CONFIG, process.cwd());
-    assert.ok(estimateTokens(text) <= 800, `tokens=${estimateTokens(text)}`);
+    assert.ok(
+      estimateTokens(text) <= INJECT_TOKEN_BUDGET,
+      `tokens=${estimateTokens(text)}`,
+    );
   });
 
   it('standard includes Rules and phase Next hint', () => {
@@ -36,7 +43,7 @@ describe('buildInjectContext', () => {
     assert.doesNotMatch(text, /Next:/);
     assert.match(text, /Intent:/);
     assert.match(text, /Checks due:/);
-    assert.ok(estimateTokens(text) <= 800);
+    assert.ok(estimateTokens(text) <= INJECT_TOKEN_BUDGET);
   });
 
   it('compact and standard both stay under budget after checks', () => {
@@ -57,7 +64,7 @@ describe('buildInjectContext', () => {
       const config: SkegConfig = { ...DEFAULT_CONFIG, guidance };
       const text = buildInjectContext(run, config, process.cwd());
       assert.ok(
-        estimateTokens(text) <= 800,
+        estimateTokens(text) <= INJECT_TOKEN_BUDGET,
         `${guidance} tokens=${estimateTokens(text)}`,
       );
     }
@@ -72,7 +79,7 @@ describe('buildInjectContext', () => {
       });
       const run = createRun('fix session clear');
       const text = buildInjectContext(run, DEFAULT_CONFIG, cwd);
-      assert.match(text, /Records \(\.skeg\/records\/\):/);
+      assert.match(text, /Records \(relevant\):/);
       assert.match(text, /DEC-001 Auth boundary clears session on logout/);
     } finally {
       rmSync(cwd, { recursive: true, force: true });

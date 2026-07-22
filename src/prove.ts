@@ -1,7 +1,12 @@
 /**
- * Prove 阶段：收集 diff / 敏感关键词 / 导出符号 等最小充分证据。
+ * Prove 阶段：收集 diff / signals；敏感关键词与 export 变化为 RiskSignal。
  */
 import { execFileSync } from 'node:child_process';
+import {
+  reconcileAgainstBaseline,
+  type ExecGit,
+} from './baseline.ts';
+import { reduce } from './reducer.ts';
 import {
   applyAdvisoryRisk,
   addChangedFiles,
@@ -13,12 +18,19 @@ import {
   findSensitiveKeywords,
 } from './risk.ts';
 import { matchesAny, normalizePath } from './paths.ts';
-import type { CheckResult, RunState, SkegConfig } from './types.ts';
+import type {
+  CheckRun,
+  RiskSignal,
+  RunState,
+  SkegConfig,
+  WorkspaceBaseline,
+} from './types.ts';
+import { EMPTY_BASELINE } from './types.ts';
 
 export type GitDiffSnapshot = {
   /** git 是否可用且在仓库内 */
   available: boolean;
-  /** 变更文件列表 */
+  /** 变更文件列表（相对 baseline.head 或 HEAD） */
   files: string[];
   /** unified diff 文本（可能截断） */
   diff: string;
@@ -26,7 +38,13 @@ export type GitDiffSnapshot = {
 };
 
 export type ProveAnalysis = {
-  checks: CheckResult[];
+  checks: Array<
+    Omit<CheckRun, 'id' | 'revision' | 'observedAt'> &
+      Partial<Pick<CheckRun, 'id' | 'revision' | 'observedAt'>>
+  >;
+  signals: Array<
+    Omit<RiskSignal, 'id' | 'revision'> & Partial<Pick<RiskSignal, 'id' | 'revision'>>
+  >;
   files: string[];
   upgradeGuarded: boolean;
   upgradeReasons: string[];
@@ -37,25 +55,22 @@ export type ProveResult = {
   notes: string[];
 };
 
-type ExecGit = (cwd: string, args: string[]) => string;
-
 /**
  * 读取工作区 diff 快照。
+ * 有 baseline.head 时以之为基准，避免 run 中途 commit 丢证据。
  * @param cwd 项目根
- * @param execGit 可注入的 git 执行器（测试用）
+ * @param baseline 可选 baseline
+ * @param execGit 可注入的 git 执行器
  * @returns diff 快照
  */
 export function readGitDiff(
   cwd: string,
+  baseline?: WorkspaceBaseline,
   execGit: ExecGit = defaultExecGit,
 ): GitDiffSnapshot {
+  const base = baseline?.head && baseline.head.length > 0 ? baseline.head : 'HEAD';
   try {
-    const filesRaw = execGit(cwd, [
-      'diff',
-      '--name-only',
-      'HEAD',
-    ]);
-    // 含未暂存 + 已暂存；再补 untracked 太吵，v0.1 以 HEAD diff 为主，并合并 status
+    const filesRaw = execGit(cwd, ['diff', '--name-only', base]);
     const statusRaw = execGit(cwd, ['status', '--porcelain']);
     const fromDiff = filesRaw
       .split(/\r?\n/)
@@ -65,7 +80,6 @@ export function readGitDiff(
     const fromStatus: string[] = [];
     for (const line of statusRaw.split(/\r?\n/)) {
       if (!line.trim()) continue;
-      // status format: XY PATH or XY ORIG -> PATH
       const pathPart = line.slice(3).split(' -> ').pop()?.trim();
       if (pathPart) fromStatus.push(normalizePath(pathPart));
     }
@@ -73,7 +87,7 @@ export function readGitDiff(
 
     let diff = '';
     try {
-      diff = execGit(cwd, ['diff', 'HEAD']);
+      diff = execGit(cwd, ['diff', base]);
       const staged = execGit(cwd, ['diff', '--cached']);
       if (staged.trim()) {
         diff = [diff, staged].filter((d) => d.trim()).join('\n');
@@ -82,7 +96,6 @@ export function readGitDiff(
       diff = '';
     }
 
-    // 控制注入/存储体积
     if (diff.length > 80_000) {
       diff = `${diff.slice(0, 80_000)}\n...[truncated]`;
     }
@@ -99,7 +112,7 @@ export function readGitDiff(
 }
 
 /**
- * 纯函数：根据 diff 快照生成 prove checks（便于单测）。
+ * 纯函数：根据 diff 快照生成 prove checks + signals。
  * @param snapshot git diff 快照
  * @param run 当前 run
  * @param config 配置
@@ -110,13 +123,17 @@ export function analyzeProveSnapshot(
   run: RunState,
   config: SkegConfig,
 ): ProveAnalysis {
-  const checks: CheckResult[] = [];
+  const checks: ProveAnalysis['checks'] = [];
+  const signals: ProveAnalysis['signals'] = [];
   const upgradeReasons: string[] = [];
   let upgradeGuarded = false;
 
-  const tracked = [...new Set([...run.changedFiles, ...snapshot.files])];
+  // 证明范围：本 run 文件；排除 pre-existing
+  const pre = new Set(run.preExistingFiles ?? []);
+  const tracked = [...new Set([...run.changedFiles, ...snapshot.files])].filter(
+    (f) => !pre.has(f),
+  );
 
-  // --- diff check ---
   if (!snapshot.available) {
     checks.push({
       kind: 'diff',
@@ -133,10 +150,14 @@ export function analyzeProveSnapshot(
     );
     const passed = unexpectedProtected.length === 0;
     const evidenceParts = [
-      tracked.length === 0 ? 'no file changes' : `${tracked.length} file(s): ${tracked.slice(0, 8).join(', ')}${tracked.length > 8 ? '…' : ''}`,
+      tracked.length === 0
+        ? 'no file changes'
+        : `${tracked.length} file(s): ${tracked.slice(0, 8).join(', ')}${tracked.length > 8 ? '…' : ''}`,
     ];
     if (unexpectedProtected.length > 0) {
-      evidenceParts.push(`protected paths in diff: ${unexpectedProtected.join(', ')}`);
+      evidenceParts.push(
+        `protected paths in diff: ${unexpectedProtected.join(', ')}`,
+      );
     }
     checks.push({
       kind: 'diff',
@@ -146,66 +167,39 @@ export function analyzeProveSnapshot(
     });
   }
 
-  // --- sensitive keywords（authPaths 未配置时的半确定性补充）---
-  if (config.authPaths.length > 0) {
-    checks.push({
-      kind: 'diff',
-      name: 'sensitive-keywords',
-      passed: true,
-      evidence: 'skipped (authPaths configured)',
-    });
-  } else {
+  // sensitive keywords → RiskSignal（非 failed check）
+  if (config.authPaths.length === 0) {
     const keywords = findSensitiveKeywords(snapshot.diff);
     if (keywords.length > 0) {
       upgradeGuarded = true;
       upgradeReasons.push(`sensitive keywords: ${keywords.join(', ')}`);
-      checks.push({
-        kind: 'diff',
-        name: 'sensitive-keywords',
-        passed: false,
+      signals.push({
+        trigger: 'sensitive-keywords',
+        strength: 'semi',
         evidence: `heuristic hit: ${keywords.join(', ')}. Configure authPaths for deterministic detection.`,
-      });
-    } else {
-      checks.push({
-        kind: 'diff',
-        name: 'sensitive-keywords',
-        passed: true,
-        evidence: 'no sensitive keywords in diff',
+        requiredChecks: ['targeted-test'],
       });
     }
   }
 
-  // --- public API export 变化（apiPaths 未配置时的半确定性补充）---
-  if (config.apiPaths.length > 0) {
-    checks.push({
-      kind: 'diff',
-      name: 'public-api-export',
-      passed: true,
-      evidence: 'skipped (apiPaths configured)',
-    });
-  } else {
+  // public API export → RiskSignal
+  if (config.apiPaths.length === 0) {
     const exports = findExportSymbolChanges(snapshot.diff);
     if (exports.length > 0) {
       upgradeGuarded = true;
       upgradeReasons.push(`export symbol changes: ${exports.length}`);
-      checks.push({
-        kind: 'diff',
-        name: 'public-api-export',
-        passed: false,
+      signals.push({
+        trigger: 'public-api-export',
+        strength: 'semi',
         evidence: `heuristic export changes (${exports.length}): ${exports.slice(0, 3).join(' | ')}`,
-      });
-    } else {
-      checks.push({
-        kind: 'diff',
-        name: 'public-api-export',
-        passed: true,
-        evidence: 'no export symbol changes in diff',
+        requiredChecks: ['diff'],
       });
     }
   }
 
   return {
     checks,
+    signals,
     files: tracked,
     upgradeGuarded,
     upgradeReasons,
@@ -213,7 +207,7 @@ export function analyzeProveSnapshot(
 }
 
 /**
- * 当 phase 卡在 orient 或未记账 changedFiles 时，用 git 工作区变更自愈。
+ * 当 phase 卡在 orient 或未记账 changedFiles 时，用 baseline reconcile 自愈。
  * @param cwd 项目根
  * @param run 当前 run
  * @param execGit 可注入 git 执行器
@@ -225,7 +219,23 @@ export function healChangedFilesFromGit(
   execGit: ExecGit = defaultExecGit,
 ): RunState {
   if (run.phase !== 'orient' && run.changedFiles.length > 0) return run;
-  const snapshot = readGitDiff(cwd, execGit);
+
+  const baseline = run.baseline?.capturedAt
+    ? run.baseline
+    : EMPTY_BASELINE;
+
+  if (baseline.capturedAt) {
+    const reconciled = reconcileAgainstBaseline(cwd, baseline, execGit);
+    if (reconciled.runChanges.length === 0 && !reconciled.headMoved) return run;
+    return reduce(run, {
+      type: 'WORKSPACE_RECONCILED',
+      changedFiles: reconciled.runChanges,
+      preExistingFiles: reconciled.preExisting,
+      headMoved: reconciled.headMoved,
+    });
+  }
+
+  const snapshot = readGitDiff(cwd, undefined, execGit);
   if (snapshot.files.length === 0) return run;
   let next = addChangedFiles(run, snapshot.files);
   if (next.phase === 'orient') next = setPhase(next, 'change');
@@ -246,19 +256,30 @@ export function runProveChecks(
   config: SkegConfig,
   execGit: ExecGit = defaultExecGit,
 ): ProveResult {
-  const snapshot = readGitDiff(cwd, execGit);
+  const snapshot = readGitDiff(cwd, run.baseline, execGit);
   const analysis = analyzeProveSnapshot(snapshot, run, config);
   const notes = [...analysis.upgradeReasons];
 
   let next = run;
   if (analysis.files.length > 0) {
-    next = addChangedFiles(next, analysis.files);
+    // 证明阶段补记文件：用 WORKSPACE_RECONCILED 避免多余 revision bump 当文件已在列表中
+    const trulyNew = analysis.files.filter((f) => !next.changedFiles.includes(f));
+    if (trulyNew.length > 0) {
+      next = reduce(next, {
+        type: 'WORKSPACE_RECONCILED',
+        changedFiles: trulyNew,
+        preExistingFiles: next.preExistingFiles,
+      });
+    }
   }
   if (next.phase === 'orient' || next.phase === 'change') {
     next = setPhase(next, 'prove');
   }
   for (const check of analysis.checks) {
     next = upsertCheck(next, check);
+  }
+  for (const signal of analysis.signals) {
+    next = reduce(next, { type: 'SIGNAL_RAISED', signal });
   }
   if (analysis.upgradeGuarded) {
     next = applyAdvisoryRisk(next, 'guarded');

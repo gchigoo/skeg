@@ -106,9 +106,22 @@ export type RecordIndexEntry = {
  * @returns 索引条目；目录不存在或为空时返回 []
  */
 export function listRecords(cwd: string, limit = 5): RecordIndexEntry[] {
+  const entries = listAllRecords(cwd);
+  entries.sort((a, b) => {
+    if (a.createdAt === b.createdAt) return b.id.localeCompare(a.id);
+    return a.createdAt < b.createdAt ? 1 : -1;
+  });
+  return entries.slice(0, Math.max(0, limit));
+}
+
+/**
+ * 列出全部 records（无 limit）。
+ * @param cwd 项目根
+ * @returns 索引列表
+ */
+export function listAllRecords(cwd: string): RecordIndexEntry[] {
   const dir = join(cwd, SKEG_DIR, 'records');
   if (!existsSync(dir)) return [];
-
   const entries: RecordIndexEntry[] = [];
   for (const fileName of readdirSync(dir)) {
     if (!fileName.endsWith('.md')) continue;
@@ -124,12 +137,57 @@ export function listRecords(cwd: string, limit = 5): RecordIndexEntry[] {
       fileName,
     });
   }
+  return entries;
+}
 
-  entries.sort((a, b) => {
-    if (a.createdAt === b.createdAt) return b.id.localeCompare(a.id);
-    return a.createdAt < b.createdAt ? 1 : -1;
+/**
+ * 按 intent 关键词 + changedFiles 路径做轻量相关性排序。
+ * @param cwd 项目根
+ * @param intent 当前意图
+ * @param changedFiles 本 run 变更文件
+ * @param limit 上限
+ * @returns 相关 records
+ */
+export function selectRelevantRecords(
+  cwd: string,
+  intent: string,
+  changedFiles: string[],
+  limit = 5,
+): RecordIndexEntry[] {
+  const tokens = tokenize(intent);
+  const pathTokens = changedFiles.flatMap((f) =>
+    f.toLowerCase().split(/[/\\._-]+/).filter((t) => t.length > 2),
+  );
+  const scored = listAllRecords(cwd).map((entry) => {
+    const hay = `${entry.title} ${entry.id} ${entry.type}`.toLowerCase();
+    let score = 0;
+    for (const t of tokens) {
+      if (hay.includes(t)) score += 3;
+    }
+    for (const t of pathTokens) {
+      if (hay.includes(t)) score += 2;
+    }
+    // 轻微时间衰减偏好：越新略加分
+    const age = Date.parse(entry.createdAt);
+    if (Number.isFinite(age)) score += Math.min(1, age / 1e15);
+    return { entry, score };
   });
-  return entries.slice(0, Math.max(0, limit));
+  scored.sort((a, b) => b.score - a.score || b.entry.id.localeCompare(a.entry.id));
+  const relevant = scored.filter((s) => s.score >= 3).slice(0, limit);
+  if (relevant.length > 0) return relevant.map((s) => s.entry);
+  // 无强相关时回退最近 N 条
+  return listRecords(cwd, limit);
+}
+
+/**
+ * @param text 文本
+ * @returns 小写 token
+ */
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9\u4e00-\u9fff]+/i)
+    .filter((t) => t.length > 2);
 }
 
 /**

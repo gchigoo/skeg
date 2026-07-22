@@ -4,6 +4,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { detectCommandsFromScripts } from './checkspec.ts';
 import { CONFIG_FILE, PROJECT_FILE, SKEG_DIR } from './types.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -44,17 +45,54 @@ export function initSkeg(cwd: string, force = false): InitResult {
     created.push(`.skeg/${name}`);
   }
 
+  // 从 package.json scripts 探测 checks.commands
+  const detected = mergeDetectedCommands(cwd, force || created.includes(`.skeg/${CONFIG_FILE}`));
+
   const message = [
     created.length > 0 ? `Created: ${created.join(', ')}` : '',
     skipped.length > 0 ? `Skipped (exists): ${skipped.join(', ')}. Use /init --force to overwrite.` : '',
+    detected ? `Detected check commands: ${Object.keys(detected).join(', ')}` : '',
     '',
     'Next: fill authPaths / apiPaths in .skeg/config.json so weak triggers become deterministic.',
-    'Then: /run <intent>',
+    'Then: /skeg start <intent> (or /run <intent>)',
   ]
     .filter(Boolean)
     .join('\n');
 
   return { created, skipped, message };
+}
+
+/**
+ * 将 package.json scripts 探测结果写入 config.checks.commands。
+ * @param cwd 项目根
+ * @param allowWrite 是否允许写入（新建或 --force）
+ * @returns 探测到的 commands，或 null
+ */
+function mergeDetectedCommands(
+  cwd: string,
+  allowWrite: boolean,
+): Record<string, string> | null {
+  if (!allowWrite) return null;
+  const pkgPath = join(cwd, 'package.json');
+  if (!existsSync(pkgPath)) return null;
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    const detected = detectCommandsFromScripts(pkg.scripts ?? {});
+    if (Object.keys(detected).length === 0) return null;
+    const configPath = join(cwd, SKEG_DIR, CONFIG_FILE);
+    if (!existsSync(configPath)) return detected;
+    const raw = JSON.parse(readFileSync(configPath, 'utf8')) as {
+      checks?: { commands?: Record<string, string> };
+    };
+    raw.checks = raw.checks ?? {};
+    raw.checks.commands = { ...detected, ...(raw.checks.commands ?? {}) };
+    writeFileSync(configPath, `${JSON.stringify(raw, null, 2)}\n`, 'utf8');
+    return detected;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -103,11 +141,13 @@ const FALLBACK_CONFIG = `${JSON.stringify(
     ],
     authPaths: [],
     apiPaths: [],
-    riskTriggers: {
-      dependencyChange: 'guarded',
-      publicApiChange: 'guarded',
-      databaseMigration: 'guarded',
-      authChange: 'guarded',
+    policies: {
+      protectedPaths: { risk: 'guarded', action: 'confirm' },
+      dangerousCommand: { risk: 'guarded', action: 'confirm' },
+      databaseMigration: { risk: 'guarded', action: 'confirm' },
+      dependencyChange: { risk: 'guarded', action: 'confirm' },
+      publicApiChange: { risk: 'guarded', action: 'confirm' },
+      authChange: { risk: 'guarded', action: 'confirm' },
     },
     checks: {
       default: ['targeted-test', 'diff'],

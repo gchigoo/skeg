@@ -1,7 +1,7 @@
 /**
  * command check 自动记账：从 bash 验证命令结果写入 RunState.checks。
  */
-import type { CheckResult, SkegConfig } from './types.ts';
+import type { CheckRun, SkegConfig } from './types.ts';
 
 export type ClassifiedCheck = {
   kind: 'command';
@@ -141,19 +141,20 @@ export function classifyCheckCommand(
 }
 
 /**
- * 从 bash 工具结果构建 CheckResult。
+ * 从 bash 工具结果构建 CheckRun（revision/id 由 reducer 补齐）。
  * @param name check 名
  * @param command 原命令
  * @param passed 是否成功
  * @param output 工具输出（可空）
- * @returns CheckResult
+ * @returns CheckRun 草稿
  */
 export function buildCommandCheck(
   name: string,
   command: string,
   passed: boolean,
   output?: string,
-): CheckResult {
+): Omit<CheckRun, 'id' | 'revision' | 'observedAt'> &
+  Partial<Pick<CheckRun, 'id' | 'revision' | 'observedAt'>> {
   const tail = (output ?? '').trim().slice(-EVIDENCE_MAX);
   const evidence = tail
     ? `${command} → ${passed ? 'ok' : 'fail'}: ${tail}`
@@ -162,6 +163,8 @@ export function buildCommandCheck(
     kind: 'command',
     name,
     passed,
+    command,
+    exitCode: passed ? 0 : 1,
     evidence: evidence.length > EVIDENCE_MAX + 80
       ? `${evidence.slice(0, EVIDENCE_MAX + 80)}…`
       : evidence,
