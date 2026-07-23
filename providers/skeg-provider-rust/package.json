@@ -1,0 +1,37 @@
+{
+  "name": "skeg-provider-rust",
+  "version": "1.0.0",
+  "description": "Skeg CheckProvider for Rust/cargo verification commands",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gchigoo/skeg.git",
+    "directory": "providers/skeg-provider-rust"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "skeg-provider",
+    "rust",
+    "cargo"
+  ],
+  "peerDependencies": {
+    "@gchigoo/skeg": ">=1.1.0 <2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@gchigoo/skeg": {
+      "optional": true
+    }
+  }
+}

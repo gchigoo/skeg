@@ -77,7 +77,7 @@ export default function (pi: ExtensionAPI) {
   let queue: Promise<void> = Promise.resolve();
 
   /**
-   * 从 session entries 同步 RunState（compat 扁平命令写 entries 后保持一致）。
+   * 从 session entries 同步 RunState（reload / settle 后与落盘一致）。
    * 仅在内存为空、或 entries 更新时覆盖，避免覆盖尚未 flush 的 in-memory 更新。
    * @param ctx 含 sessionManager 的上下文
    */

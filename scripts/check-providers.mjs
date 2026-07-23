@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 对 examples/providers 下各入口跑 skeg-provider-test conformance。
+ * 对 providers/ 下各入口跑 skeg-provider-test conformance。
  * 用法：node scripts/check-providers.mjs
  */
 import { spawnSync } from 'node:child_process';
@@ -9,7 +9,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const providersDir = join(root, 'examples', 'providers');
+const providersDir = join(root, 'providers');
 const tester = join(root, 'scripts', 'provider-test.mjs');
 
 /**
@@ -26,7 +26,7 @@ function listProviderEntries() {
 function main() {
   const entries = listProviderEntries();
   if (entries.length === 0) {
-    console.error('No example providers found under examples/providers/*/index.mjs');
+    console.error('No providers found under providers/*/index.mjs');
     process.exit(1);
   }
 

@@ -137,7 +137,7 @@ async function main() {
     /** @type {string[]} */
     const providerTarballs = [];
     for (const name of PROVIDER_NAMES) {
-      const dir = join(REPO, 'examples', 'providers', name);
+      const dir = join(REPO, 'providers', name);
       const tgz = npmPack(dir);
       const copy = join(packs, tgz.split(/[/\\]/).pop());
       cpSync(tgz, copy);
@@ -150,7 +150,6 @@ async function main() {
     extractPackage(skegPackCopy, skegExtract);
     const requiredFiles = [
       'extensions/core.ts',
-      'extensions/compat.ts',
       'src/provider-api.ts',
       'dist/provider-api.js',
       'dist/provider-api.d.ts',

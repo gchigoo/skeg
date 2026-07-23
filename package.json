@@ -1,6 +1,6 @@
 {
   "name": "@gchigoo/skeg",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Minimal engineering workflow for coding agents. Stay light. Hold course.",
   "type": "module",
   "keywords": [
@@ -14,8 +14,7 @@
       "types": "./dist/provider-api.d.ts",
       "import": "./dist/provider-api.js"
     },
-    "./package.json": "./package.json",
-    "./*": "./*"
+    "./package.json": "./package.json"
   },
   "bin": {
     "skeg-provider-test": "./scripts/provider-test.mjs"

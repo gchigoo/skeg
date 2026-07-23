@@ -576,7 +576,7 @@ async function main() {
       existsSync(join(SANDBOX, '.skeg/project.md')),
   );
 
-  // v1.0：默认不加载 compat；扁平 /run 不得启动 run
+  // v1.3：compat 已移除；扁平 /run 不得启动 run
   // 未注册时 Pi 可能把 `/run …` 当普通 prompt → 短等后 abort，只断言无 Started run
   pi.notifies = [];
   const flatBefore = pi.events.length;

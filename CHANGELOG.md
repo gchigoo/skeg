@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.3.0 — 2026-07-23
+
+Ecosystem Proof：独立版本化 Provider 包；移除 v1.1 预告的 deprecated 面。
+
+### Added
+- `providers/skeg-provider-{postgres,monorepo,rust}`：独立 `1.0.0`、LICENSE、认证清单、`repository.directory`
+- `.github/workflows/release-providers.yml`：tag `skeg-provider-*-v*` → conformance → pack → checksums → GitHub Release
+
+### Removed
+- `extensions/compat.ts`（扁平 `/init` `/run` `/status` `/finish` `/record`；请用 `/skeg …`）
+- 通配 `exports["./*"]`（正式导出仅 `./provider-api` 与 `./package.json`）
+
+### Changed
+- 目录：`examples/providers/` → `providers/`
+- `EXTENSIONS_TOTAL_LOC_BUDGET` 700 → 600
+
 ## 1.2.0 — 2026-07-23
 
 Explainability and Long-Session UX：可验证解释、RunState 有界压缩、审计摘要化。

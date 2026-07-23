@@ -42,46 +42,20 @@ Prompt template:
 /skeg-fix user still sees old avatar after logout
 ```
 
-### Compat opt-in (flat commands)
-
-v1.0 起默认只注册 `/skeg`。扁平 `/init` `/run` `/status` `/finish` `/record` 仍随包分发，需手动启用其一：
-
-```json
-{
-  "packages": ["@gchigoo/skeg"],
-  "extensions": [
-    "./node_modules/@gchigoo/skeg/extensions/compat.ts"
-  ]
-}
-```
-
-或 packages 对象形式显式列出：
-
-```json
-{
-  "packages": [
-    {
-      "source": "./node_modules/@gchigoo/skeg",
-      "extensions": ["./extensions/core.ts", "./extensions/compat.ts"]
-    }
-  ]
-}
-```
-
 ## Status
 
-**v1.2.0** — Explainability and Long-Session UX：`/skeg status --why`、RunState 有界压缩、context 审计默认摘要。
+**v1.3.0** — Ecosystem Proof：独立版本化 Provider 包、移除 compat 与通配 exports。
 
 ### 稳定面承诺
 
-- 命令面：`/skeg init|start|status|finish|record|trust|untrust|providers|doctor…`
-- Provider：编译入口 `@gchigoo/skeg/provider-api`（`dist/provider-api.js` + `.d.ts`）+ `apiVersion: 1` / `defineProvider`
+- 命令面：仅 `/skeg …`（扁平 `/init` `/run` 等已移除；请用 `/skeg start|status|finish|…`）
+- Provider：编译入口 `@gchigoo/skeg/provider-api` + `apiVersion: 1` / `defineProvider`
+- 独立包：`providers/skeg-provider-{postgres,monorepo,rust}`（各自版本与 release tag）
 - Config：`policies` / 结构化或 `/regex/` CheckMatcher；普通子串 matcher 拒绝
 - Closure：当前 revision 证据；`--waive` / `--abandon` 显式出口
-- JSON：`/skeg status --json` 输出 Evidence Report V1（不写仓库文件）
-- Why：`/skeg status --why` 解释 risk / gate / required / stale / contract drift（可验证事实）
-- 长 session：超阈值自动 compact RunState；`skeg/context` 默认只记 `{hash,tokens}`，`SKEG_CONTEXT_AUDIT=full` 才落全文
-- 包导出：`./provider-api` 与 `./package.json` 为正式面；通配 `./*` **deprecated**，计划 v1.3 移除
+- JSON / Why：`/skeg status --json` / `--why`
+- 长 session：超阈值 compact RunState；`skeg/context` 默认摘要，`SKEG_CONTEXT_AUDIT=full` 落全文
+- 包导出：仅 `./provider-api` 与 `./package.json`（通配 `./*` 已移除）
 
 ```bash
 npm run verify
@@ -125,7 +99,7 @@ Smoke 剧本：lean1 编辑后跑 `npm test -- <path>` 再 `/skeg finish`；lean
 
 ### Writing a provider
 
-只依赖正式入口 `@gchigoo/skeg/provider-api`（编译产物，自包含只读 V1 DTO），禁止 `src/*` 内部导入。示例见 `examples/providers/`（postgres / monorepo / rust；零运行时依赖的 `.mjs`）。
+只依赖正式入口 `@gchigoo/skeg/provider-api`（编译产物，自包含只读 V1 DTO），禁止 `src/*` 内部导入。独立包见 `providers/`（postgres / monorepo / rust；零运行时依赖的 `.mjs`，各含认证清单）。
 
 ```js
 import { defineProvider } from '@gchigoo/skeg/provider-api';
@@ -146,9 +120,11 @@ export default defineProvider({
 
 ```bash
 npx skeg-provider-test .skeg/providers/postgres.mjs
-# 或仓库内示例：
+# 或仓库内全部独立 Provider：
 npm run check:providers
 ```
+
+发布独立 Provider：推送 tag `skeg-provider-<name>-v<version>`（须等于该包 `package.json` version）。
 
 ### Matcher migration
 

@@ -18,8 +18,8 @@ const BUDGETS = [
 
 /** core 适配层 LOC 基线（v0.6.2+ 承认 600） */
 const CORE_LOC_BUDGET = 600;
-/** extensions/*.ts 合计（host-adapter 总量） */
-const EXTENSIONS_TOTAL_LOC_BUDGET = 700;
+/** extensions/*.ts 合计（host-adapter 总量；v1.3 移除 compat 后收紧） */
+const EXTENSIONS_TOTAL_LOC_BUDGET = 600;
 /** 注入硬预算常量上限 */
 const INJECT_TOKEN_BUDGET_MAX = 300;
 /** core 公开 registerCommand 次数 */
@@ -218,12 +218,12 @@ function checkSurfaceBudgets(root) {
  * @returns {boolean}
  */
 function checkProviderApiBoundary(root) {
-  const providersRoot = join(root, 'examples', 'providers');
+  const providersRoot = join(root, 'providers');
   let files;
   try {
     files = walk(providersRoot).filter((f) => /\.(mjs|js|ts|cts|mts)$/.test(f));
   } catch {
-    console.log('SKIP  examples/providers (missing)');
+    console.log('SKIP  providers/ (missing)');
     return true;
   }
 
@@ -235,7 +235,7 @@ function checkProviderApiBoundary(root) {
   for (const rel of files) {
     const full = join(providersRoot, rel);
     const text = readFileSync(full, 'utf8');
-    const display = `examples/providers/${rel}`;
+    const display = `providers/${rel}`;
     if (forbidden.test(text)) {
       console.log(`FAIL  provider API boundary  ${display}`);
       ok = false;

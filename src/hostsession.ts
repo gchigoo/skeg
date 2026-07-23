@@ -1,6 +1,6 @@
 /**
  * 宿主 session 级可变状态（跨 Pi 扩展模块共享，依赖 ESM 模块缓存）。
- * core 与 compat 都从此处读写，避免扁平命令与事件钩子状态分叉。
+ * core 读写 gate acknowledgement 与 pending mutations。
  */
 import { PendingMutationTable } from './pending.ts';
 
