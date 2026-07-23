@@ -6,7 +6,7 @@ import type {
   CheckMatcher,
   CheckRun,
   EvidenceSource,
-  SkegConfig,
+  VeritackConfig,
 } from './types.ts';
 
 export type ClassifiedCheck = {
@@ -104,7 +104,7 @@ function matchConfiguredCommands(
  */
 export function classifyCheckCommand(
   command: string,
-  config: SkegConfig,
+  config: VeritackConfig,
 ): ClassifiedCheck | null {
   const cmd = command.trim();
   if (!cmd) return null;

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Skeg token / LOC / 表面预算检查脚本（零依赖）。
+ * Veritack token / LOC / 表面预算检查脚本（零依赖）。
  *
  * 用法：
  *   node scripts/check-budgets.mjs                     # 全部预算
@@ -26,8 +26,8 @@ const INJECT_TOKEN_BUDGET_MAX = 300;
 const CORE_REGISTER_COMMAND_MAX = 1;
 /** src/commands.ts case 标签数（含 run/start 别名与 doctor） */
 const COMMAND_CASE_MAX = 10;
-/** reducer SkegEvent 变体数 */
-const SKEG_EVENT_VARIANTS_MAX = 15;
+/** reducer VeritackEvent 变体数 */
+const VERITACK_EVENT_VARIANTS_MAX = 15;
 
 const LOC_BUDGETS = [
   { file: 'extensions/core.ts', maxLoc: CORE_LOC_BUDGET },
@@ -195,18 +195,18 @@ function checkSurfaceBudgets(root) {
     console.log('SKIP  command case count');
   }
 
-  // SkegEvent 变体数
+  // VeritackEvent 变体数
   try {
     const reducer = readFileSync(join(root, 'src/reducer.ts'), 'utf8');
     const variants = reducer.match(/\{\s*type:\s*'[A-Z_]+'/g) ?? [];
     const count = variants.length;
-    const pass = count <= SKEG_EVENT_VARIANTS_MAX;
+    const pass = count <= VERITACK_EVENT_VARIANTS_MAX;
     console.log(
-      `${pass ? 'OK  ' : 'OVER'}  ${String(count).padStart(6)} / ${String(SKEG_EVENT_VARIANTS_MAX).padEnd(6)} events  src/reducer.ts SkegEvent`,
+      `${pass ? 'OK  ' : 'OVER'}  ${String(count).padStart(6)} / ${String(VERITACK_EVENT_VARIANTS_MAX).padEnd(6)} events  src/reducer.ts VeritackEvent`,
     );
     if (!pass) ok = false;
   } catch {
-    console.log('SKIP  SkegEvent variants');
+    console.log('SKIP  VeritackEvent variants');
   }
 
   return ok;
@@ -228,9 +228,9 @@ function checkProviderApiBoundary(root) {
   }
 
   let ok = true;
-  // 禁止：相对/绝对路径指向 src、裸 import 内部模块；允许 JSDoc 中的 @gchigoo/skeg/provider-api
+  // 禁止：相对/绝对路径指向 src、裸 import 内部模块；允许 JSDoc 中的 @veritack/pi-veritack/provider-api
   const forbidden =
-    /(?:from\s+|import\s*\(|import\s+[^;]*?['"])(?:\.?\.?\/)*(?:src\/|@gchigoo\/skeg\/(?!provider-api)[^'"]+)/;
+    /(?:from\s+|import\s*\(|import\s+[^;]*?['"])(?:\.?\.?\/)*(?:src\/|@veritack\/pi-veritack\/(?!provider-api)[^'"]+)/;
 
   for (const rel of files) {
     const full = join(providersRoot, rel);

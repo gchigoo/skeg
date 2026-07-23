@@ -64,7 +64,7 @@ export function latestRunFromEntries(
 ): RunState | null {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i];
-    if (entry?.type === 'custom' && entry.customType === 'skeg/run') {
+    if (entry?.type === 'custom' && entry.customType === 'veritack/run') {
       const migrated = migrateRunState(entry.data);
       if (migrated) return migrated;
     }
@@ -217,7 +217,7 @@ export function hasFreshPass(run: RunState, name: string): boolean {
  * @returns 多行文本
  */
 export function formatStatus(run: RunState | null): string {
-  if (!run) return 'No active Skeg run. Use /run <intent> to start.';
+  if (!run) return 'No active Veritack run. Use /run <intent> to start.';
   const checks = formatChecksLine(run);
   const gate = run.pendingGate
     ? `${run.pendingGate.trigger}${run.pendingGate.resolved ? ' (resolved)' : ''}: ${run.pendingGate.reason}`
@@ -351,7 +351,7 @@ export function formatCloseReport(run: RunState): string {
           .join('\n')}`;
   const heuristic =
     run.risk === 'guarded' && run.riskSource === 'advisory'
-      ? '\nRisk detection: heuristic (advisory only). Consider configuring authPaths/apiPaths in .skeg/config.json.'
+      ? '\nRisk detection: heuristic (advisory only). Consider configuring authPaths/apiPaths in .veritack/config.json.'
       : '';
   return [
     `Done: ${run.intent}`,

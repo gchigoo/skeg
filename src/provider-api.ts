@@ -1,9 +1,9 @@
 /**
- * 公共 Provider API（正式入口：@gchigoo/skeg/provider-api）。
+ * 公共 Provider API（正式入口：@veritack/pi-veritack/provider-api）。
  * 本文件零 import、自包含；第三方勿 import src/* 内部路径。
  */
 
-export const SKEG_PROVIDER_API_VERSION = 1 as const;
+export const VERITACK_PROVIDER_API_VERSION = 1 as const;
 
 export type ProviderCapability = 'policy' | 'check' | 'record';
 
@@ -35,7 +35,7 @@ export type ProviderTriggerPolicyV1 = Readonly<{
   action: ProviderPolicyActionV1;
 }>;
 
-/** SkegConfig 公共字段只读视图（Provider 可见） */
+/** VeritackConfig 公共字段只读视图（Provider 可见） */
 export type ProviderConfigV1 = Readonly<{
   defaultPolicy: ProviderRiskLevelV1;
   guidance: 'compact' | 'standard';
@@ -113,7 +113,7 @@ export type RecordSelector = {
   }>): ProviderRecordSelectionV1;
 };
 
-export type SkegProviderV1 = {
+export type VeritackProviderV1 = {
   apiVersion: 1;
   id: string;
   capabilities: ProviderCapability[];
@@ -127,7 +127,7 @@ export type SkegProviderV1 = {
  * @param provider V1 Provider
  * @returns 同一对象
  */
-export function defineProvider(provider: SkegProviderV1): SkegProviderV1 {
+export function defineProvider(provider: VeritackProviderV1): VeritackProviderV1 {
   return provider;
 }
 

@@ -11,7 +11,7 @@ import {
 } from './inject.ts';
 import { createRecord } from './record.ts';
 import { createRun, upsertCheck } from './run.ts';
-import type { SkegConfig } from './types.ts';
+import type { VeritackConfig } from './types.ts';
 
 describe('buildInjectContext', () => {
   it('stays under inject budget for a typical run', () => {
@@ -33,7 +33,7 @@ describe('buildInjectContext', () => {
   });
 
   it('compact omits Rules, Project, and Next hint', () => {
-    const config: SkegConfig = { ...DEFAULT_CONFIG, guidance: 'compact' };
+    const config: VeritackConfig = { ...DEFAULT_CONFIG, guidance: 'compact' };
     const run = createRun('add filter chip');
     run.phase = 'prove';
     run.changedFiles = ['src/orders/List.tsx'];
@@ -61,7 +61,7 @@ describe('buildInjectContext', () => {
       evidence: '2 file(s)',
     });
     for (const guidance of ['compact', 'standard'] as const) {
-      const config: SkegConfig = { ...DEFAULT_CONFIG, guidance };
+      const config: VeritackConfig = { ...DEFAULT_CONFIG, guidance };
       const text = buildInjectContext(run, config, process.cwd());
       assert.ok(
         estimateTokens(text) <= INJECT_TOKEN_BUDGET,
@@ -71,7 +71,7 @@ describe('buildInjectContext', () => {
   });
 
   it('standard injects records index when present', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-inject-rec-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-inject-rec-'));
     try {
       createRecord(cwd, {
         type: 'decision',
@@ -87,13 +87,13 @@ describe('buildInjectContext', () => {
   });
 
   it('compact omits records index', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-inject-compact-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-inject-compact-'));
     try {
       createRecord(cwd, {
         type: 'decision',
         title: 'Auth boundary clears session on logout',
       });
-      const config: SkegConfig = { ...DEFAULT_CONFIG, guidance: 'compact' };
+      const config: VeritackConfig = { ...DEFAULT_CONFIG, guidance: 'compact' };
       const run = createRun('fix session clear');
       const text = buildInjectContext(run, config, cwd);
       assert.doesNotMatch(text, /Records/);
@@ -103,7 +103,7 @@ describe('buildInjectContext', () => {
   });
 
   it('omits Records when no records exist', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-inject-none-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-inject-none-'));
     try {
       const run = createRun('fix session clear');
       const text = buildInjectContext(run, DEFAULT_CONFIG, cwd);

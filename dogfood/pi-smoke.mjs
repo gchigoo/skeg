@@ -25,28 +25,28 @@ const DIST_MODE = args.includes('--dist');
 const SANDBOX =
   cwdFlag >= 0
     ? resolve(args[cwdFlag + 1])
-    : join(tmpdir(), DIST_MODE ? 'skeg-pi-smoke-dist' : 'skeg-pi-smoke');
+    : join(tmpdir(), DIST_MODE ? 'veritack-pi-smoke-dist' : 'veritack-pi-smoke');
 
 /** 源码模式指向仓库；--dist 模式指向沙箱内安装的 tarball 包 */
-let SKEG_ROOT = REPO_ROOT;
+let VERITACK_ROOT = REPO_ROOT;
 
 const TIMEOUT_MS = 180_000;
-const MODEL = process.env.SKEG_SMOKE_MODEL || 'deepseek/deepseek-v4-flash';
+const MODEL = process.env.VERITACK_SMOKE_MODEL || 'deepseek/deepseek-v4-flash';
 
 /** @typedef {{ type: string, [k: string]: unknown }} RpcMsg */
 
 /**
  * --dist：npm pack 仓库并安装到沙箱，Pi packages 指向安装路径。
  * @param {string} root
- * @returns {string} 安装后的 skeg 包根目录
+ * @returns {string} 安装后的 veritack 包根目录
  */
-function installSkegFromTarball(root) {
+function installVeritackFromTarball(root) {
   mkdirSync(root, { recursive: true });
   if (!existsSync(join(root, 'package.json'))) {
     writeFileSync(
       join(root, 'package.json'),
       JSON.stringify({
-        name: 'skeg-smoke-dist',
+        name: 'veritack-smoke-dist',
         version: '0.0.0',
         private: true,
       }),
@@ -89,7 +89,7 @@ function installSkegFromTarball(root) {
       /* ignore */
     }
   }
-  const installed = join(root, 'node_modules', '@gchigoo', 'skeg');
+  const installed = join(root, 'node_modules', '@veritack', 'pi-veritack');
   if (!existsSync(join(installed, 'extensions', 'core.ts'))) {
     throw new Error(`dist install missing extensions/core.ts under ${installed}`);
   }
@@ -102,7 +102,7 @@ function installSkegFromTarball(root) {
  */
 function ensureSandbox(root) {
   if (DIST_MODE) {
-    SKEG_ROOT = installSkegFromTarball(root);
+    VERITACK_ROOT = installVeritackFromTarball(root);
   }
   mkdirSync(join(root, 'src', 'auth'), { recursive: true });
   mkdirSync(join(root, 'migrations'), { recursive: true });
@@ -111,7 +111,7 @@ function ensureSandbox(root) {
     join(root, 'package.json'),
     JSON.stringify(
       {
-        name: 'skeg-smoke',
+        name: 'veritack-smoke',
         version: '0.0.0',
         private: true,
         scripts: {
@@ -170,7 +170,7 @@ function ensureSandbox(root) {
   mkdirSync(join(root, '.pi'), { recursive: true });
   writeFileSync(
     join(root, '.pi/settings.json'),
-    JSON.stringify({ packages: [SKEG_ROOT] }, null, 2),
+    JSON.stringify({ packages: [VERITACK_ROOT] }, null, 2),
   );
 
   // 初始化/重置 git，便于 prove/diff；fixture 重写后必须再 commit
@@ -227,9 +227,9 @@ function commitSandbox(root, message, opts = {}) {
       'git',
       [
         '-c',
-        'user.email=skeg@smoke.local',
+        'user.email=veritack@smoke.local',
         '-c',
-        'user.name=skeg-smoke',
+        'user.name=veritack-smoke',
         'commit',
         '-m',
         message,
@@ -269,12 +269,12 @@ class PiRpc {
       : ['deepseek', MODEL];
     // Windows 上直接 spawn .cmd 易 EINVAL；统一走 node + cli.js
     const cliJs =
-      process.env.SKEG_PI_CLI ||
+      process.env.VERITACK_PI_CLI ||
       [
-        join(SKEG_ROOT, 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
+        join(VERITACK_ROOT, 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
         'D:/Software/nodejs/node_modules/@earendil-works/pi-coding-agent/dist/cli.js',
       ].find((p) => existsSync(p));
-    if (!cliJs) throw new Error('pi cli.js not found; set SKEG_PI_CLI');
+    if (!cliJs) throw new Error('pi cli.js not found; set VERITACK_PI_CLI');
 
     this.proc = spawn(
       process.execPath,
@@ -291,12 +291,12 @@ class PiRpc {
         '--model',
         modelId,
         '--name',
-        'skeg-pi-smoke',
+        'veritack-pi-smoke',
       ],
       {
         cwd: this.cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, SKEG_CONTEXT_AUDIT: 'full' },
+        env: { ...process.env, VERITACK_CONTEXT_AUDIT: 'full' },
       },
     );
     this.proc.on('error', (err) => {
@@ -305,7 +305,7 @@ class PiRpc {
 
     this.proc.stderr.on('data', (d) => {
       const t = d.toString();
-      if (process.env.SKEG_SMOKE_DEBUG) process.stderr.write(`[pi stderr] ${t}`);
+      if (process.env.VERITACK_SMOKE_DEBUG) process.stderr.write(`[pi stderr] ${t}`);
     });
 
     this.proc.stdout.on('data', (chunk) => {
@@ -495,23 +495,23 @@ class PiRpc {
   /**
    * @returns {Promise<object[]>}
    */
-  async getSkegRuns() {
+  async getVeritackRuns() {
     const entries = await this.getEntries();
     return entries
-      .filter((e) => e.type === 'custom' && e.customType === 'skeg/run')
+      .filter((e) => e.type === 'custom' && e.customType === 'veritack/run')
       .map((e) => e.data);
   }
 
   /**
-   * 注入审计：core 在 systemPrompt 内容 hash 变化时 appendEntry(skeg/context)。
+   * 注入审计：core 在 systemPrompt 内容 hash 变化时 appendEntry(veritack/context)。
    * @returns {Promise<string[]>}
    */
-  async getSkegContexts() {
+  async getVeritackContexts() {
     const entries = await this.getEntries();
     return entries
       .filter(
         (e) =>
-          e.customType === 'skeg/context' &&
+          e.customType === 'veritack/context' &&
           (e.type === 'custom_message' || e.type === 'custom'),
       )
       .map((e) => {
@@ -544,10 +544,10 @@ function check(name, ok, detail) {
 async function main() {
   ensureSandbox(SANDBOX);
   console.log(`Sandbox: ${SANDBOX}`);
-  console.log(`Skeg:    ${SKEG_ROOT}${DIST_MODE ? ' (dist tarball)' : ''}`);
+  console.log(`Veritack:    ${VERITACK_ROOT}${DIST_MODE ? ' (dist tarball)' : ''}`);
   console.log(`Model:   ${MODEL}`);
   if (DIST_MODE) {
-    console.log('Mode:    --dist (Pi loads skeg from sandbox node_modules)');
+    console.log('Mode:    --dist (Pi loads veritack from sandbox node_modules)');
   }
 
   const pi = new PiRpc(SANDBOX);
@@ -559,21 +559,21 @@ async function main() {
     if (!check(name, ok, detail)) failures.push(name);
   };
 
-  // --- /skeg init（顺带证明命令已注册并有 notify UX）---
+  // --- /veritack init（顺带证明命令已注册并有 notify UX）---
   pi.notifies = [];
-  await pi.prompt('/skeg init');
+  await pi.prompt('/veritack init');
   const initNotify = pi.notifies.find((n) =>
-    /skeg|\.skeg|initialized|created/i.test(n.message || ''),
+    /veritack|\.veritack|initialized|created/i.test(n.message || ''),
   );
   record(
-    'commands UX (/skeg init)',
+    'commands UX (/veritack init)',
     Boolean(initNotify),
     initNotify?.message?.split('\n')[0] || 'no notify',
   );
   record(
-    '/skeg init writes .skeg',
-    existsSync(join(SANDBOX, '.skeg/config.json')) &&
-      existsSync(join(SANDBOX, '.skeg/project.md')),
+    '/veritack init writes .veritack',
+    existsSync(join(SANDBOX, '.veritack/config.json')) &&
+      existsSync(join(SANDBOX, '.veritack/project.md')),
   );
 
   // v1.3：compat 已移除；扁平 /run 不得启动 run
@@ -602,21 +602,21 @@ async function main() {
           'no Started notify (command absent or treated as prompt)',
   );
 
-  // /skeg record 轻量验证（为后续 Records 索引注入预置一条）
+  // /veritack record 轻量验证（为后续 Records 索引注入预置一条）
   pi.notifies = [];
-  await pi.prompt('/skeg record incident Smoke note | pi smoke harness check');
+  await pi.prompt('/veritack record incident Smoke note | pi smoke harness check');
   const recordNotify = pi.notifies.find((n) => /Recorded/i.test(n.message || ''));
   record(
-    'commands UX (/skeg record)',
+    'commands UX (/veritack record)',
     Boolean(recordNotify),
     recordNotify?.message || '',
   );
-  const recordDir = join(SANDBOX, '.skeg/records');
+  const recordDir = join(SANDBOX, '.veritack/records');
   const recordFile = existsSync(recordDir)
     ? readdirSync(recordDir).find((n) => n.startsWith('INC-') && n.endsWith('.md'))
     : undefined;
   record(
-    '/skeg record writes file',
+    '/veritack record writes file',
     Boolean(recordFile) &&
       readFileSync(join(recordDir, recordFile), 'utf8').includes('Smoke note'),
     recordFile || 'missing',
@@ -625,9 +625,9 @@ async function main() {
   // ========== lean 1: redirect ==========
   pi.notifies = [];
   pi.uiRequests = [];
-  await pi.prompt('/skeg start fix redirect query loss after login');
+  await pi.prompt('/veritack start fix redirect query loss after login');
   const run1 = pi.notifies.find((n) => /Started run/i.test(n.message || ''));
-  record('lean1 /skeg start UX', Boolean(run1), run1?.message?.split('\n')[0] || '');
+  record('lean1 /veritack start UX', Boolean(run1), run1?.message?.split('\n')[0] || '');
 
   await pi.prompt(
     [
@@ -637,15 +637,15 @@ async function main() {
       "     return query ? `${path}?${query}` : path;",
       '   }',
       '2. Do not touch any other files.',
-      '3. Then run exactly this bash command (needed for Skeg evidence):',
+      '3. Then run exactly this bash command (needed for Veritack evidence):',
       '   npm test -- src/auth/redirect.ts',
       '4. Reply DONE after the test command finishes.',
     ].join('\n'),
   );
 
-  // systemPrompt 注入经 skeg/context 审计 entry 可观测（Records (relevant)）
+  // systemPrompt 注入经 veritack/context 审计 entry 可观测（Records (relevant)）
   const allEntries = await pi.getEntries();
-  const contexts = await pi.getSkegContexts();
+  const contexts = await pi.getVeritackContexts();
   const withRecords = contexts.find(
     (c) => /Records\s*\(relevant\)/i.test(c) && /INC-\d+/.test(c),
   );
@@ -669,10 +669,10 @@ async function main() {
   record('lean1 file edited', redirect.includes('query'), 'redirect.ts');
 
   pi.notifies = [];
-  await pi.prompt('/skeg status');
+  await pi.prompt('/veritack status');
   const status1 = pi.notifies.map((n) => n.message || '').join('\n');
   record(
-    'lean1 /skeg status intent+lean',
+    'lean1 /veritack status intent+lean',
     /Intent:.*redirect/i.test(status1) && /Risk:\s*lean/i.test(status1),
     status1.replace(/\n/g, ' | ').slice(0, 200),
   );
@@ -688,10 +688,10 @@ async function main() {
   );
 
   pi.notifies = [];
-  await pi.prompt('/skeg finish');
+  await pi.prompt('/veritack finish');
   const finish1 = pi.notifies.map((n) => n.message || '').join('\n');
   record(
-    'lean1 /skeg finish closes',
+    'lean1 /veritack finish closes',
     /Done:\s*.*redirect/i.test(finish1) && !/Cannot finish/i.test(finish1),
     finish1.replace(/\n/g, ' | ').slice(0, 240),
   );
@@ -700,9 +700,9 @@ async function main() {
   // ========== lean 2: false-green 拒绝 + abandon 清场 ==========
   pi.notifies = [];
   pi.uiRequests = [];
-  await pi.prompt('/skeg start fix typo in settings copy SAVE_LABEL');
+  await pi.prompt('/veritack start fix typo in settings copy SAVE_LABEL');
   record(
-    'lean2 /skeg start UX',
+    'lean2 /veritack start UX',
     pi.notifies.some((n) => /Started run/i.test(n.message || '')),
   );
 
@@ -730,10 +730,10 @@ async function main() {
   );
 
   pi.notifies = [];
-  await pi.prompt('/skeg status');
+  await pi.prompt('/veritack status');
   const status2 = pi.notifies.map((n) => n.message || '').join('\n');
   record(
-    'lean2 /skeg status intent+lean',
+    'lean2 /veritack status intent+lean',
     /Intent:.*typo|SAVE_LABEL|settings copy/i.test(status2) &&
       /Risk:\s*lean/i.test(status2),
     status2.replace(/\n/g, ' | ').slice(0, 200),
@@ -744,21 +744,21 @@ async function main() {
     status2.replace(/\n/g, ' | ').slice(0, 200),
   );
 
-  // 无 targeted-test 证据时 /skeg finish 必须拒绝（false-green 防线）
+  // 无 targeted-test 证据时 /veritack finish 必须拒绝（false-green 防线）
   pi.notifies = [];
-  await pi.prompt('/skeg finish');
+  await pi.prompt('/veritack finish');
   const finish2 = pi.notifies.map((n) => n.message || '').join('\n');
   record(
-    'lean2 /skeg finish rejects missing evidence',
+    'lean2 /veritack finish rejects missing evidence',
     /Cannot finish/i.test(finish2) && /targeted-test/i.test(finish2),
     finish2.replace(/\n/g, ' | ').slice(0, 240),
   );
 
   pi.notifies = [];
-  await pi.prompt('/skeg finish --abandon');
+  await pi.prompt('/veritack finish --abandon');
   const abandon2 = pi.notifies.map((n) => n.message || '').join('\n');
   record(
-    'lean2 /skeg finish --abandon clears',
+    'lean2 /veritack finish --abandon clears',
     /Abandoned:/i.test(abandon2),
     abandon2.replace(/\n/g, ' | ').slice(0, 200),
   );
@@ -768,9 +768,9 @@ async function main() {
   pi.notifies = [];
   pi.uiRequests = [];
   pi.autoConfirm = true;
-  await pi.prompt('/skeg start add unique index migration on users.email');
+  await pi.prompt('/veritack start add unique index migration on users.email');
   record(
-    'risk /skeg start UX',
+    'risk /veritack start UX',
     pi.notifies.some((n) => /Started run/i.test(n.message || '')),
   );
 
@@ -780,7 +780,7 @@ async function main() {
       '1. Create file migrations/002_users_email_unique.sql with exactly:',
       '   CREATE UNIQUE INDEX CONCURRENTLY users_email_uidx ON users(email);',
       '2. Use the write tool (not bash redirection).',
-      '3. If a Skeg gate confirm appears, that is expected — the host will approve.',
+      '3. If a Veritack gate confirm appears, that is expected — the host will approve.',
       '4. Do not run tests. Reply DONE after the write succeeds.',
     ].join('\n'),
   );
@@ -788,7 +788,7 @@ async function main() {
   const gateConfirms = pi.uiRequests.filter(
     (u) =>
       u.method === 'confirm' &&
-      /Skeg gate:\s*databaseMigration/i.test(u.title || ''),
+      /Veritack gate:\s*databaseMigration/i.test(u.title || ''),
   );
   record(
     'risk gate confirm UI',
@@ -806,21 +806,21 @@ async function main() {
   );
 
   pi.notifies = [];
-  await pi.prompt('/skeg status');
+  await pi.prompt('/veritack status');
   const status3 = pi.notifies.map((n) => n.message || '').join('\n');
   record(
-    'risk /skeg status guarded+deterministic',
+    'risk /veritack status guarded+deterministic',
     /Risk:\s*guarded\s*\(deterministic\)/i.test(status3),
     status3.replace(/\n/g, ' | ').slice(0, 240),
   );
 
   pi.notifies = [];
   await pi.prompt(
-    '/skeg finish --waive "smoke: migration fixture; waive remaining checks"',
+    '/veritack finish --waive "smoke: migration fixture; waive remaining checks"',
   );
   const finish3 = pi.notifies.map((n) => n.message || '').join('\n');
   record(
-    'risk /skeg finish --waive closes',
+    'risk /veritack finish --waive closes',
     /Done:\s*.*(migration|unique index|users\.email)/i.test(finish3) &&
       /Waivers:/i.test(finish3) &&
       !/Cannot finish/i.test(finish3) &&
@@ -829,7 +829,7 @@ async function main() {
   );
 
   // persistence check
-  const runs = await pi.getSkegRuns();
+  const runs = await pi.getVeritackRuns();
   record(
     'RunState persisted in session',
     runs.length > 0 && runs.some((r) => r.intent),
@@ -848,12 +848,12 @@ async function main() {
       .filter((u) => u.method === 'confirm')
       .map((u) => u.title),
   };
-  // 报告始终写回仓库 dogfood/（--dist 时 SKEG_ROOT 在 tarball 安装树内无 dogfood/）
+  // 报告始终写回仓库 dogfood/（--dist 时 VERITACK_ROOT 在 tarball 安装树内无 dogfood/）
   const out = join(REPO_ROOT, 'dogfood', 'PI_SMOKE.md');
   writeFileSync(
     out,
     [
-      '# Skeg Pi smoke (2 lean + 1 risk + records index)',
+      '# Veritack Pi smoke (2 lean + 1 risk + records index)',
       '',
       `Date: ${report.date}`,
       `Result: ${report.result}`,

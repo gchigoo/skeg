@@ -41,16 +41,16 @@ describe('loadProviders', () => {
   let prevUserDir: string | undefined;
 
   beforeEach(() => {
-    userDir = mkdtempSync(join(tmpdir(), 'skeg-prov-user-'));
-    cwd = mkdtempSync(join(tmpdir(), 'skeg-prov-cwd-'));
-    prevUserDir = process.env.SKEG_USER_DIR;
-    process.env.SKEG_USER_DIR = userDir;
-    mkdirSync(join(cwd, '.skeg', 'providers'), { recursive: true });
+    userDir = mkdtempSync(join(tmpdir(), 'veritack-prov-user-'));
+    cwd = mkdtempSync(join(tmpdir(), 'veritack-prov-cwd-'));
+    prevUserDir = process.env.VERITACK_USER_DIR;
+    process.env.VERITACK_USER_DIR = userDir;
+    mkdirSync(join(cwd, '.veritack', 'providers'), { recursive: true });
   });
 
   afterEach(() => {
-    if (prevUserDir === undefined) delete process.env.SKEG_USER_DIR;
-    else process.env.SKEG_USER_DIR = prevUserDir;
+    if (prevUserDir === undefined) delete process.env.VERITACK_USER_DIR;
+    else process.env.VERITACK_USER_DIR = prevUserDir;
     rmSync(userDir, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
   });
@@ -58,7 +58,7 @@ describe('loadProviders', () => {
   it('does not import untrusted providers', async () => {
     const marker = join(cwd, 'side-effect.txt');
     writeFileSync(
-      join(cwd, '.skeg', 'providers', 'evil.mjs'),
+      join(cwd, '.veritack', 'providers', 'evil.mjs'),
       `import { writeFileSync } from 'node:fs';
 writeFileSync(${JSON.stringify(marker)}, 'ran');
 export default { checks: { classify() { return null; } } };
@@ -67,7 +67,7 @@ export default { checks: { classify() { return null; } } };
     );
     const loaded = await loadProviders(cwd, {
       ...DEFAULT_CONFIG,
-      providers: [entry('.skeg/providers/evil.mjs')],
+      providers: [entry('.veritack/providers/evil.mjs')],
     });
     assert.equal(loaded.checks.length, 0);
     assert.ok(loaded.diagnostics.some((d) => d.message.includes('not trusted')));
@@ -76,7 +76,7 @@ export default { checks: { classify() { return null; } } };
 
   it('loads a trusted V1 module', async () => {
     writeFileSync(
-      join(cwd, '.skeg', 'providers', 'ok.mjs'),
+      join(cwd, '.veritack', 'providers', 'ok.mjs'),
       `export default {
   apiVersion: 1,
   id: 'special',
@@ -96,7 +96,7 @@ export default { checks: { classify() { return null; } } };
   },
   checks: {
     classify(command) {
-      if (command === 'just skeg-special-verify') {
+      if (command === 'just veritack-special-verify') {
         return { kind: 'command', name: 'special-verify' };
       }
       return null;
@@ -106,7 +106,7 @@ export default { checks: { classify() { return null; } } };
 `,
       'utf8',
     );
-    const spec = '.skeg/providers/ok.mjs';
+    const spec = '.veritack/providers/ok.mjs';
     assert.equal(trustProvider(cwd, spec).ok, true);
 
     const ok = await loadProviders(cwd, {
@@ -120,8 +120,8 @@ export default { checks: { classify() { return null; } } };
   });
 
   it('reloads new provider content after re-trust (ProviderReloadStale)', async () => {
-    const file = join(cwd, '.skeg', 'providers', 'reload.mjs');
-    const spec = '.skeg/providers/reload.mjs';
+    const file = join(cwd, '.veritack', 'providers', 'reload.mjs');
+    const spec = '.veritack/providers/reload.mjs';
     writeFileSync(
       file,
       `export default {
@@ -130,7 +130,7 @@ export default { checks: { classify() { return null; } } };
   capabilities: ['check'],
   checks: {
     classify(command) {
-      if (command === 'skeg-reload-probe') {
+      if (command === 'veritack-reload-probe') {
         return { kind: 'command', name: 'reload-v1' };
       }
       return null;
@@ -146,7 +146,7 @@ export default { checks: { classify() { return null; } } };
       providers: [entry(spec, { id: 'reload' })],
     });
     assert.equal(
-      first.checks[0]?.impl.classify('skeg-reload-probe', DEFAULT_CONFIG)?.name,
+      first.checks[0]?.impl.classify('veritack-reload-probe', DEFAULT_CONFIG)?.name,
       'reload-v1',
     );
 
@@ -158,7 +158,7 @@ export default { checks: { classify() { return null; } } };
   capabilities: ['check'],
   checks: {
     classify(command) {
-      if (command === 'skeg-reload-probe') {
+      if (command === 'veritack-reload-probe') {
         return { kind: 'command', name: 'reload-v2' };
       }
       return null;
@@ -174,14 +174,14 @@ export default { checks: { classify() { return null; } } };
       providers: [entry(spec, { id: 'reload' })],
     });
     assert.equal(
-      second.checks[0]?.impl.classify('skeg-reload-probe', DEFAULT_CONFIG)?.name,
+      second.checks[0]?.impl.classify('veritack-reload-probe', DEFAULT_CONFIG)?.name,
       'reload-v2',
     );
   });
 
   it('records requiredPolicyFailures when required provider untrusted', async () => {
     writeFileSync(
-      join(cwd, '.skeg', 'providers', 'req.mjs'),
+      join(cwd, '.veritack', 'providers', 'req.mjs'),
       `export default {
   apiVersion: 1,
   id: 'req',
@@ -193,7 +193,7 @@ export default { checks: { classify() { return null; } } };
     );
     const loaded = await loadProviders(cwd, {
       ...DEFAULT_CONFIG,
-      providers: [entry('.skeg/providers/req.mjs', { id: 'req', required: true })],
+      providers: [entry('.veritack/providers/req.mjs', { id: 'req', required: true })],
     });
     assert.ok(loaded.requiredPolicyFailures.length >= 1);
     assert.ok(
@@ -201,7 +201,7 @@ export default { checks: { classify() { return null; } } };
     );
   });
 
-  it('rejects providers outside .skeg/providers', async () => {
+  it('rejects providers outside .veritack/providers', async () => {
     writeFileSync(join(cwd, 'outside.mjs'), 'export default {};\n', 'utf8');
     const loaded = await loadProviders(cwd, {
       ...DEFAULT_CONFIG,
@@ -209,20 +209,20 @@ export default { checks: { classify() { return null; } } };
     });
     assert.equal(loaded.checks.length, 0);
     assert.ok(
-      loaded.diagnostics.some((d) => d.message.includes('.skeg/providers')),
+      loaded.diagnostics.some((d) => d.message.includes('.veritack/providers')),
     );
   });
 
   it('rejects legacy modules without apiVersion', async () => {
     writeFileSync(
-      join(cwd, '.skeg', 'providers', 'legacy.mjs'),
+      join(cwd, '.veritack', 'providers', 'legacy.mjs'),
       `export default {
   checks: { classify() { return { kind: 'command', name: 'legacy-check' }; } }
 };
 `,
       'utf8',
     );
-    const spec = '.skeg/providers/legacy.mjs';
+    const spec = '.veritack/providers/legacy.mjs';
     assert.equal(trustProvider(cwd, spec).ok, true);
     const loaded = await loadProviders(cwd, {
       ...DEFAULT_CONFIG,
@@ -239,9 +239,9 @@ export default { checks: { classify() { return null; } } };
   });
 
   it('CapabilityMismatch: declared without export', async () => {
-    const spec = '.skeg/providers/cap-miss.mjs';
+    const spec = '.veritack/providers/cap-miss.mjs';
     writeFileSync(
-      join(cwd, '.skeg', 'providers', 'cap-miss.mjs'),
+      join(cwd, '.veritack', 'providers', 'cap-miss.mjs'),
       `export default {
   apiVersion: 1, id: 'cap-miss', capabilities: ['check']
 };
@@ -262,9 +262,9 @@ export default { checks: { classify() { return null; } } };
   });
 
   it('CapabilityMismatch: export without declaration', async () => {
-    const spec = '.skeg/providers/cap-extra.mjs';
+    const spec = '.veritack/providers/cap-extra.mjs';
     writeFileSync(
-      join(cwd, '.skeg', 'providers', 'cap-extra.mjs'),
+      join(cwd, '.veritack', 'providers', 'cap-extra.mjs'),
       `export default {
   apiVersion: 1, id: 'cap-extra', capabilities: ['check'],
   checks: { classify() { return null; } },
@@ -290,9 +290,9 @@ export default { checks: { classify() { return null; } } };
   });
 
   it('CapabilityMismatch: unknown capability', async () => {
-    const spec = '.skeg/providers/cap-unk.mjs';
+    const spec = '.veritack/providers/cap-unk.mjs';
     writeFileSync(
-      join(cwd, '.skeg', 'providers', 'cap-unk.mjs'),
+      join(cwd, '.veritack', 'providers', 'cap-unk.mjs'),
       `export default {
   apiVersion: 1, id: 'cap-unk', capabilities: ['phase'],
   checks: { classify() { return null; } }
@@ -314,9 +314,9 @@ export default { checks: { classify() { return null; } } };
   });
 
   it('CapabilityMismatch: duplicate capability', async () => {
-    const spec = '.skeg/providers/cap-dup.mjs';
+    const spec = '.veritack/providers/cap-dup.mjs';
     writeFileSync(
-      join(cwd, '.skeg', 'providers', 'cap-dup.mjs'),
+      join(cwd, '.veritack', 'providers', 'cap-dup.mjs'),
       `export default {
   apiVersion: 1, id: 'cap-dup', capabilities: ['check', 'check'],
   checks: { classify() { return null; } }
@@ -477,7 +477,7 @@ describe('classifyWithProviders', () => {
 
   it('uses higher priority provider and reports conflicts', () => {
     const hit = classifyWithProviders(
-      'just skeg-special-verify',
+      'just veritack-special-verify',
       DEFAULT_CONFIG,
       null,
       [

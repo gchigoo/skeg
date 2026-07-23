@@ -75,13 +75,13 @@ describe('risk layers', () => {
 });
 
 describe('latestRunFromEntries', () => {
-  it('reads newest skeg/run custom entry', () => {
+  it('reads newest veritack/run custom entry', () => {
     const a = createRun('first');
     const b = createRun('second');
     const found = latestRunFromEntries([
-      { type: 'custom', customType: 'skeg/run', data: a },
+      { type: 'custom', customType: 'veritack/run', data: a },
       { type: 'custom', customType: 'other', data: {} },
-      { type: 'custom', customType: 'skeg/run', data: b },
+      { type: 'custom', customType: 'veritack/run', data: b },
     ]);
     assert.equal(found?.intent, 'second');
   });

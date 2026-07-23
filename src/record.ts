@@ -1,5 +1,5 @@
 /**
- * Record：将值得长期保留的知识惰性写入 `.skeg/records/`。
+ * Record：将值得长期保留的知识惰性写入 `.veritack/records/`。
  */
 import {
   existsSync,
@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { SKEG_DIR, type RunState } from './types.ts';
+import { VERITACK_DIR, type RunState } from './types.ts';
 
 export type RecordType = 'decision' | 'migration' | 'incident';
 
@@ -21,7 +21,7 @@ const PREFIX: Record<RecordType, string> = {
   incident: 'INC',
 };
 
-export type SkegRecord = {
+export type VeritackRecord = {
   id: string;
   type: RecordType;
   title: string;
@@ -100,7 +100,7 @@ export type RecordIndexEntry = {
 };
 
 /**
- * 列出 `.skeg/records/` 中的记录，按 createdAt 倒序。
+ * 列出 `.veritack/records/` 中的记录，按 createdAt 倒序。
  * @param cwd 项目根
  * @param limit 最多返回条数（默认 5）
  * @returns 索引条目；目录不存在或为空时返回 []
@@ -120,7 +120,7 @@ export function listRecords(cwd: string, limit = 5): RecordIndexEntry[] {
  * @returns 索引列表
  */
 export function listAllRecords(cwd: string): RecordIndexEntry[] {
-  const dir = join(cwd, SKEG_DIR, 'records');
+  const dir = join(cwd, VERITACK_DIR, 'records');
   if (!existsSync(dir)) return [];
   const entries: RecordIndexEntry[] = [];
   for (const fileName of readdirSync(dir)) {
@@ -251,15 +251,15 @@ function unquoteYamlValue(value: string): string {
  * @param input 创建参数
  * @returns 创建的 record 元数据
  */
-export function createRecord(cwd: string, input: CreateRecordInput): SkegRecord {
-  const dir = join(cwd, SKEG_DIR, 'records');
+export function createRecord(cwd: string, input: CreateRecordInput): VeritackRecord {
+  const dir = join(cwd, VERITACK_DIR, 'records');
   mkdirSync(dir, { recursive: true });
 
   const seq = nextSequence(dir, input.type);
   const id = `${PREFIX[input.type]}-${String(seq).padStart(3, '0')}`;
   const slug = slugify(input.title);
   const fileName = `${id}-${slug}.md`;
-  const relativePath = `.skeg/records/${fileName}`;
+  const relativePath = `.veritack/records/${fileName}`;
   const createdAt = new Date().toISOString();
   const body = (input.body || '').trim();
 

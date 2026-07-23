@@ -7,7 +7,7 @@ import {
   normalizePath,
   pathMatchCandidates,
 } from './paths.ts';
-import type { RiskHit, SkegConfig, TriggerId } from './types.ts';
+import type { RiskHit, VeritackConfig, TriggerId } from './types.ts';
 
 const DANGEROUS_PATTERNS = [
   /\brm\s+(-[a-zA-Z]*f|--recursive)/i,
@@ -42,7 +42,7 @@ export function pathsFromToolCall(
 }
 
 /**
- * 判断是否为 Skeg 控制面路径（硬编码，不可配置关闭）。
+ * 判断是否为 Veritack 控制面路径（硬编码，不可配置关闭）。
  * @param path 归一化路径
  * @returns 是否控制面
  */
@@ -50,9 +50,9 @@ export function isControlPlanePath(path: string): boolean {
   const candidates = pathMatchCandidates(normalizePath(path));
   return candidates.some(
     (p) =>
-      p === '.skeg/config.json' ||
-      p === '.skeg/providers' ||
-      p.startsWith('.skeg/providers/'),
+      p === '.veritack/config.json' ||
+      p === '.veritack/providers' ||
+      p.startsWith('.veritack/providers/'),
   );
 }
 
@@ -62,7 +62,7 @@ export function isControlPlanePath(path: string): boolean {
  * @param config 项目配置
  * @returns 命中列表
  */
-export function detectPathRisks(path: string, config: SkegConfig): RiskHit[] {
+export function detectPathRisks(path: string, config: VeritackConfig): RiskHit[] {
   const hits: RiskHit[] = [];
   const normalized = normalizePath(path);
 
@@ -71,7 +71,7 @@ export function detectPathRisks(path: string, config: SkegConfig): RiskHit[] {
       trigger: 'controlPlane',
       strength: 'deterministic',
       path: normalized,
-      reason: `Skeg control-plane path requires confirm: ${normalized}`,
+      reason: `Veritack control-plane path requires confirm: ${normalized}`,
     });
   }
 
@@ -182,7 +182,7 @@ export function gateAcknowledgementKey(hit: RiskHit): string {
 export function scanToolCall(
   toolName: string,
   input: Record<string, unknown>,
-  config: SkegConfig,
+  config: VeritackConfig,
 ): RiskHit[] {
   const hits: RiskHit[] = [];
   const name = toolName.toLowerCase();
@@ -215,7 +215,7 @@ export function scanToolCall(
  */
 export function requiresGate(
   trigger: TriggerId,
-  config?: SkegConfig,
+  config?: VeritackConfig,
 ): boolean {
   // 控制面恒 confirm，无视项目 policies
   if (trigger === 'controlPlane') return true;
@@ -232,7 +232,7 @@ export function requiresGate(
  */
 export function requiresBlock(
   trigger: TriggerId,
-  config?: SkegConfig,
+  config?: VeritackConfig,
 ): boolean {
   // 控制面只 confirm，不硬 block（允许用户显式放行）
   if (trigger === 'controlPlane') return false;

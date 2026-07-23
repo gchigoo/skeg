@@ -1,7 +1,7 @@
 {
-  "name": "@gchigoo/skeg",
-  "version": "1.3.0",
-  "description": "Minimal engineering workflow for coding agents. Stay light. Hold course.",
+  "name": "@veritack/pi-veritack",
+  "version": "1.3.1",
+  "description": "Minimal evidence and risk control for coding agents. Verify the run. Hold the course.",
   "type": "module",
   "keywords": [
     "pi-package",
@@ -17,7 +17,7 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "skeg-provider-test": "./scripts/provider-test.mjs"
+    "veritack-provider-test": "./scripts/provider-test.mjs"
   },
   "files": [
     "dist",
@@ -27,6 +27,7 @@
     "scripts/provider-test.mjs",
     "templates",
     "README.md",
+    "README.zh-CN.md",
     "LICENSE",
     "CHANGELOG.md",
     "NON_GOALS.md"

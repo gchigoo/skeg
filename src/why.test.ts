@@ -7,7 +7,7 @@ import { DEFAULT_CONFIG } from './config.ts';
 import { buildRunContract, configContractHash } from './contract.ts';
 import { reduce } from './reducer.ts';
 import { applyRiskHit, upsertCheck } from './run.ts';
-import type { SkegConfig } from './types.ts';
+import type { VeritackConfig } from './types.ts';
 import { buildWhyReport } from './why.ts';
 
 describe('WhyExplainable', () => {
@@ -58,7 +58,7 @@ describe('WhyExplainable', () => {
   });
 
   it('explains contract drift with hash prefix and check diffs', () => {
-    const start: SkegConfig = {
+    const start: VeritackConfig = {
       ...DEFAULT_CONFIG,
       defaultPolicy: 'guarded',
       checks: {
@@ -73,7 +73,7 @@ describe('WhyExplainable', () => {
       risk: 'guarded',
       contract,
     });
-    const weakened: SkegConfig = {
+    const weakened: VeritackConfig = {
       ...start,
       checks: { default: ['diff'], guarded: ['diff'] },
     };
@@ -92,6 +92,6 @@ describe('WhyExplainable', () => {
   });
 
   it('idle run message', () => {
-    assert.match(buildWhyReport(null, DEFAULT_CONFIG), /No active Skeg run/);
+    assert.match(buildWhyReport(null, DEFAULT_CONFIG), /No active Veritack run/);
   });
 });

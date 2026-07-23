@@ -64,10 +64,10 @@ function git(cwd, args) {
  * @returns {string}
  */
 function makeRepo() {
-  const cwd = mkdtempSync(join(tmpdir(), 'skeg-rt-'));
+  const cwd = mkdtempSync(join(tmpdir(), 'veritack-rt-'));
   git(cwd, ['init']);
-  git(cwd, ['config', 'user.email', 'skeg@test']);
-  git(cwd, ['config', 'user.name', 'skeg']);
+  git(cwd, ['config', 'user.email', 'veritack@test']);
+  git(cwd, ['config', 'user.name', 'veritack']);
   mkdirSync(join(cwd, 'src'), { recursive: true });
   writeFileSync(join(cwd, 'src/a.ts'), 'export const a = 1;\n', 'utf8');
   writeFileSync(
@@ -378,14 +378,14 @@ async function main() {
   });
 
   await inv('第三方 CheckProvider 分类的 check 进入 closure 证据链', async () => {
-    const userDir = mkdtempSync(join(tmpdir(), 'skeg-rt-user-'));
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-rt-prov-'));
-    const prevUserDir = process.env.SKEG_USER_DIR;
-    process.env.SKEG_USER_DIR = userDir;
+    const userDir = mkdtempSync(join(tmpdir(), 'veritack-rt-user-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-rt-prov-'));
+    const prevUserDir = process.env.VERITACK_USER_DIR;
+    process.env.VERITACK_USER_DIR = userDir;
     try {
-      mkdirSync(join(cwd, '.skeg', 'providers'), { recursive: true });
+      mkdirSync(join(cwd, '.veritack', 'providers'), { recursive: true });
       const counterPath = join(cwd, 'provider-calls.txt');
-      const providerPath = join(cwd, '.skeg', 'providers', 'special.mjs');
+      const providerPath = join(cwd, '.veritack', 'providers', 'special.mjs');
       writeFileSync(
         providerPath,
         `import { readFileSync, writeFileSync } from 'node:fs';
@@ -399,7 +399,7 @@ export default {
       let n = 0;
       try { n = Number(readFileSync(COUNTER, 'utf8')); } catch {}
       writeFileSync(COUNTER, String(n + 1));
-      return command === 'just skeg-special-verify'
+      return command === 'just veritack-special-verify'
         ? { kind: 'command', name: 'special-verify' }
         : null;
     }
@@ -408,7 +408,7 @@ export default {
 `,
         'utf8',
       );
-      const spec = '.skeg/providers/special.mjs';
+      const spec = '.veritack/providers/special.mjs';
       const { trustProvider } = await import(
         pathToFileURL(join(root, 'src/trust.ts')).href
       );
@@ -425,13 +425,13 @@ export default {
       assert.equal(loaded.checks.length, 1);
 
       const builtin = classifyCheckCommand(
-        'just skeg-special-verify',
+        'just veritack-special-verify',
         DEFAULT_CONFIG,
       );
       assert.equal(builtin, null);
 
       const classified = classifyWithProviders(
-        'just skeg-special-verify',
+        'just veritack-special-verify',
         DEFAULT_CONFIG,
         builtin,
         loaded.checks,
@@ -448,7 +448,7 @@ export default {
         kind: 'command',
         name: classified.check.name,
         passed: true,
-        command: 'just skeg-special-verify',
+        command: 'just veritack-special-verify',
       });
       run = upsertCheck(run, { kind: 'diff', name: 'diff', passed: true });
       const providerConfig = {
@@ -460,23 +460,23 @@ export default {
       };
       assert.equal(evaluateClosure(run, providerConfig).ok, true);
     } finally {
-      if (prevUserDir === undefined) delete process.env.SKEG_USER_DIR;
-      else process.env.SKEG_USER_DIR = prevUserDir;
+      if (prevUserDir === undefined) delete process.env.VERITACK_USER_DIR;
+      else process.env.VERITACK_USER_DIR = prevUserDir;
       rmSync(userDir, { recursive: true, force: true });
       rmSync(cwd, { recursive: true, force: true });
     }
   });
 
   await inv('未信任项目 Provider 顶层代码不得执行', async () => {
-    const userDir = mkdtempSync(join(tmpdir(), 'skeg-rt-user-'));
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-rt-untrust-'));
-    const prevUserDir = process.env.SKEG_USER_DIR;
-    process.env.SKEG_USER_DIR = userDir;
+    const userDir = mkdtempSync(join(tmpdir(), 'veritack-rt-user-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-rt-untrust-'));
+    const prevUserDir = process.env.VERITACK_USER_DIR;
+    process.env.VERITACK_USER_DIR = userDir;
     try {
-      mkdirSync(join(cwd, '.skeg', 'providers'), { recursive: true });
+      mkdirSync(join(cwd, '.veritack', 'providers'), { recursive: true });
       const marker = join(cwd, 'executed.txt');
       writeFileSync(
-        join(cwd, '.skeg', 'providers', 'evil.mjs'),
+        join(cwd, '.veritack', 'providers', 'evil.mjs'),
         `import { writeFileSync } from 'node:fs';
 writeFileSync(${JSON.stringify(marker)}, 'ran');
 export default { checks: { classify() { return null; } } };
@@ -491,7 +491,7 @@ export default { checks: { classify() { return null; } } };
         providers: [
           {
             id: 'evil',
-            spec: '.skeg/providers/evil.mjs',
+            spec: '.veritack/providers/evil.mjs',
             required: false,
             priority: 0,
           },
@@ -510,8 +510,8 @@ export default { checks: { classify() { return null; } } };
         false,
       );
     } finally {
-      if (prevUserDir === undefined) delete process.env.SKEG_USER_DIR;
-      else process.env.SKEG_USER_DIR = prevUserDir;
+      if (prevUserDir === undefined) delete process.env.VERITACK_USER_DIR;
+      else process.env.VERITACK_USER_DIR = prevUserDir;
       rmSync(userDir, { recursive: true, force: true });
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -698,13 +698,13 @@ export default { checks: { classify() { return null; } } };
   });
 
   await inv('Provider 加载后未 reload → session 冻结 configHash', async () => {
-    const userDir = mkdtempSync(join(tmpdir(), 'skeg-rt-freeze-'));
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-rt-freeze-cwd-'));
-    const prevUserDir = process.env.SKEG_USER_DIR;
-    process.env.SKEG_USER_DIR = userDir;
+    const userDir = mkdtempSync(join(tmpdir(), 'veritack-rt-freeze-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-rt-freeze-cwd-'));
+    const prevUserDir = process.env.VERITACK_USER_DIR;
+    process.env.VERITACK_USER_DIR = userDir;
     try {
-      mkdirSync(join(cwd, '.skeg', 'providers'), { recursive: true });
-      const spec = '.skeg/providers/freeze.mjs';
+      mkdirSync(join(cwd, '.veritack', 'providers'), { recursive: true });
+      const spec = '.veritack/providers/freeze.mjs';
       writeFileSync(
         join(cwd, spec),
         `export default {
@@ -768,8 +768,8 @@ export default { checks: { classify() { return null; } } };
         hashAtLoad,
       );
     } finally {
-      if (prevUserDir === undefined) delete process.env.SKEG_USER_DIR;
-      else process.env.SKEG_USER_DIR = prevUserDir;
+      if (prevUserDir === undefined) delete process.env.VERITACK_USER_DIR;
+      else process.env.VERITACK_USER_DIR = prevUserDir;
       rmSync(userDir, { recursive: true, force: true });
       rmSync(cwd, { recursive: true, force: true });
     }

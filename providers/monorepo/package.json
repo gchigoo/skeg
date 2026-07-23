@@ -1,7 +1,7 @@
 {
-  "name": "skeg-provider-monorepo",
-  "version": "1.0.0",
-  "description": "Skeg CheckProvider for workspace-scoped test commands in monorepos",
+  "name": "@veritack/monorepo",
+  "version": "1.1.0",
+  "description": "Veritack CheckProvider for workspace-scoped test commands in monorepos",
   "type": "module",
   "main": "index.mjs",
   "exports": {
@@ -9,27 +9,28 @@
   },
   "files": [
     "index.mjs",
+    "provider-cases.json",
     "README.md",
     "LICENSE"
   ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gchigoo/skeg.git",
-    "directory": "providers/skeg-provider-monorepo"
+    "url": "git+https://github.com/gchigoo/veritack.git",
+    "directory": "providers/monorepo"
   },
   "engines": {
     "node": ">=22"
   },
   "keywords": [
-    "skeg-provider",
+    "veritack-provider",
     "monorepo"
   ],
   "peerDependencies": {
-    "@gchigoo/skeg": ">=1.1.0 <2.0.0"
+    "@veritack/pi-veritack": ">=1.3.1 <2.0.0"
   },
   "peerDependenciesMeta": {
-    "@gchigoo/skeg": {
+    "@veritack/pi-veritack": {
       "optional": true
     }
   }

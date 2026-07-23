@@ -2,7 +2,7 @@
  * Evidence Report V1：稳定只读 JSON（CI / 外部工具）。
  */
 import { configContractHash } from './contract.ts';
-import type { RunState, SkegConfig } from './types.ts';
+import type { RunState, VeritackConfig } from './types.ts';
 
 export type EvidenceReportV1 = {
   schemaVersion: 1;
@@ -53,7 +53,7 @@ export type EvidenceReportV1 = {
  */
 export function buildEvidenceReportV1(
   run: RunState | null,
-  config: SkegConfig,
+  config: VeritackConfig,
   generatedAt?: string,
 ): EvidenceReportV1 {
   const at = generatedAt ?? new Date().toISOString();

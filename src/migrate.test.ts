@@ -35,7 +35,7 @@ describe('latestRunFromEntries migrates v1', () => {
     const found = latestRunFromEntries([
       {
         type: 'custom',
-        customType: 'skeg/run',
+        customType: 'veritack/run',
         data: {
           id: 'run_legacy',
           intent: 'legacy',

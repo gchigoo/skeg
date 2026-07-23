@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 对 providers/ 下各入口跑 skeg-provider-test conformance。
+ * 对 providers/ 下各入口跑 veritack-provider-test conformance。
  * 用法：node scripts/check-providers.mjs
  */
 import { spawnSync } from 'node:child_process';
@@ -33,11 +33,15 @@ function main() {
   let failed = false;
   for (const entry of entries) {
     console.log(`\n=== provider-test ${entry.replace(/\\/g, '/')} ===`);
-    const result = spawnSync(
-      process.execPath,
-      ['--experimental-strip-types', tester, entry],
-      { stdio: 'inherit', cwd: root },
-    );
+    const cases = join(dirname(entry), 'provider-cases.json');
+    const args = ['--experimental-strip-types', tester, entry];
+    if (existsSync(cases)) {
+      args.push('--cases', cases);
+    }
+    const result = spawnSync(process.execPath, args, {
+      stdio: 'inherit',
+      cwd: root,
+    });
     if (result.status !== 0) failed = true;
   }
 

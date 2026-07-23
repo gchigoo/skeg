@@ -13,7 +13,7 @@ import type {
   ProviderRiskHitV1,
 } from './provider-api.ts';
 import type { RecordIndexEntry } from './record.ts';
-import type { RiskHit, SkegConfig } from './types.ts';
+import type { RiskHit, VeritackConfig } from './types.ts';
 
 /**
  * 编译期：内部类型可赋给公共只读 DTO。
@@ -24,8 +24,8 @@ function assertAssignable<_T>(_v: _T): void {
 }
 
 describe('PublicDtoDrift', () => {
-  it('SkegConfig is assignable to ProviderConfigV1', () => {
-    const config: SkegConfig = DEFAULT_CONFIG;
+  it('VeritackConfig is assignable to ProviderConfigV1', () => {
+    const config: VeritackConfig = DEFAULT_CONFIG;
     const view: ProviderConfigV1 = config;
     assertAssignable<ProviderConfigV1>(view);
     assert.equal(view.defaultPolicy, config.defaultPolicy);

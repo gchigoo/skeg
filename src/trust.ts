@@ -36,7 +36,7 @@ export type ProviderSpecKind =
 
 const TRUST_FILE = 'trust.json';
 const TRUST_TMP = 'trust.json.tmp';
-const PROVIDERS_DIR = '.skeg/providers';
+const PROVIDERS_DIR = '.veritack/providers';
 
 export type TrustStoreLoadResult = {
   store: TrustStore;
@@ -46,13 +46,13 @@ export type TrustStoreLoadResult = {
 };
 
 /**
- * 用户级 Skeg 目录（可用 SKEG_USER_DIR 覆盖，便于测试）。
+ * 用户级 Veritack 目录（可用 VERITACK_USER_DIR 覆盖，便于测试）。
  * @returns 绝对路径
  */
-export function skegUserDir(): string {
-  const override = process.env.SKEG_USER_DIR?.trim();
+export function veritackUserDir(): string {
+  const override = process.env.VERITACK_USER_DIR?.trim();
   if (override) return resolve(override);
-  return join(homedir(), '.skeg');
+  return join(homedir(), '.veritack');
 }
 
 /**
@@ -119,7 +119,7 @@ export function assertSelfContainedProvider(
 
 /**
  * 校验并分类配置中的 provider spec。
- * 项目内仅允许 `.skeg/providers/**` 相对路径；裸包名走包解析。
+ * 项目内仅允许 `.veritack/providers/**` 相对路径；裸包名走包解析。
  * @param spec 配置字符串
  * @returns 分类结果
  */
@@ -239,7 +239,7 @@ export function resolveTrustedProviderTarget(
     if (!underProviders) {
       return {
         ok: false,
-        reason: 'provider realpath escapes .skeg/providers',
+        reason: 'provider realpath escapes .veritack/providers',
       };
     }
     const self = assertSelfContainedProvider(entryReal);
@@ -307,7 +307,7 @@ function normalizeTrustStore(raw: unknown): TrustStore | null {
  * @returns store + diagnostics
  */
 export function loadTrustStoreWithDiagnostics(): TrustStoreLoadResult {
-  const file = join(skegUserDir(), TRUST_FILE);
+  const file = join(veritackUserDir(), TRUST_FILE);
   if (!existsSync(file)) {
     return { store: { providers: [] }, diagnostics: [] };
   }
@@ -407,7 +407,7 @@ export function loadTrustStore(): TrustStore {
  * @param store 存储
  */
 export function saveTrustStore(store: TrustStore): void {
-  const dir = skegUserDir();
+  const dir = veritackUserDir();
   mkdirSync(dir, { recursive: true });
   const tmp = join(dir, TRUST_TMP);
   const dest = join(dir, TRUST_FILE);
@@ -447,14 +447,14 @@ export function checkProviderTrust(cwd: string, spec: string): TrustCheckResult 
     return {
       trusted: false,
       reason: 'untrusted',
-      detail: `Provider ${spec.trim()} is not trusted for this workspace. Run /skeg trust ${spec.trim()}`,
+      detail: `Provider ${spec.trim()} is not trusted for this workspace. Run /veritack trust ${spec.trim()}`,
     };
   }
   if (entry.contentHash !== hashed.hash) {
     return {
       trusted: false,
       reason: 'hash-mismatch',
-      detail: `Provider ${spec.trim()} content changed since trust; run /skeg trust ${spec.trim()} again`,
+      detail: `Provider ${spec.trim()} content changed since trust; run /veritack trust ${spec.trim()} again`,
     };
   }
   return { trusted: true, contentHash: hashed.hash };
@@ -508,7 +508,7 @@ export function untrustProvider(
   spec: string,
 ): { ok: true; message: string } | { ok: false; message: string } {
   const trimmed = spec.trim();
-  if (!trimmed) return { ok: false, message: 'Usage: /skeg untrust <spec>' };
+  if (!trimmed) return { ok: false, message: 'Usage: /veritack untrust <spec>' };
   const repo = normalizeRepoPath(cwd);
   const store = loadTrustStore();
   const before = store.providers.length;

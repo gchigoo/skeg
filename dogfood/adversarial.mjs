@@ -92,7 +92,7 @@ async function main() {
   });
 
   await inv('run 前已有 dirty file → 不归入当前 run', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-adv-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-adv-'));
     try {
       mkdirSync(join(cwd, 'src'), { recursive: true });
       writeFileSync(join(cwd, 'src/unrelated.ts'), 'same', 'utf8');
@@ -160,11 +160,11 @@ async function main() {
     assert.notEqual(gateAcknowledgementKey(a), gateAcknowledgementKey(b));
   });
 
-  await inv('.skeg/config.json JSON 错误 → 必须可见，不得静默', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-cfg-'));
+  await inv('.veritack/config.json JSON 错误 → 必须可见，不得静默', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-cfg-'));
     try {
-      mkdirSync(join(cwd, '.skeg'), { recursive: true });
-      writeFileSync(join(cwd, '.skeg/config.json'), '{bad', 'utf8');
+      mkdirSync(join(cwd, '.veritack'), { recursive: true });
+      writeFileSync(join(cwd, '.veritack/config.json'), '{bad', 'utf8');
       const result = loadConfigWithDiagnostics(cwd);
       assert.ok(result.diagnostics.some((d) => d.level === 'error'));
       assert.ok(
@@ -224,7 +224,7 @@ async function main() {
     const { computeRunObservation } = await import(
       pathToFileURL(join(root, 'src/baseline.ts')).href
     );
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-settle-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-settle-'));
     try {
       mkdirSync(join(cwd, 'src'), { recursive: true });
       writeFileSync(join(cwd, 'src/a.ts'), 'x\n', 'utf8');

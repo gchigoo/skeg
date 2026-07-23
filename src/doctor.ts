@@ -1,5 +1,5 @@
 /**
- * /skeg doctor：只读诊断报告（config / trust / providers / run / env）。
+ * /veritack doctor：只读诊断报告（config / trust / providers / run / env）。
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -15,14 +15,14 @@ import {
 } from './providers.ts';
 import { readGitDiff } from './prove.ts';
 import { formatStatus } from './run.ts';
-import { loadTrustStoreWithDiagnostics, skegUserDir } from './trust.ts';
-import type { RunState, SkegConfig } from './types.ts';
+import { loadTrustStoreWithDiagnostics, veritackUserDir } from './trust.ts';
+import type { RunState, VeritackConfig } from './types.ts';
 
 /**
  * 读取本包版本号。
  * @returns version 字符串
  */
-export function readSkegVersion(): string {
+export function readVeritackVersion(): string {
   try {
     const pkgPath = join(
       dirname(fileURLToPath(import.meta.url)),
@@ -39,7 +39,7 @@ export function readSkegVersion(): string {
 export type DoctorInput = {
   cwd: string;
   run: RunState | null;
-  config: SkegConfig;
+  config: VeritackConfig;
   providers: LoadedProviders;
 };
 
@@ -49,17 +49,17 @@ export type DoctorInput = {
  * @returns 多行报告
  */
 export function buildDoctorReport(input: DoctorInput): string {
-  const lines: string[] = ['Skeg doctor', ''];
+  const lines: string[] = ['Veritack doctor', ''];
 
   // 环境
   const git = readGitDiff(input.cwd);
   lines.push('## Environment');
-  lines.push(`- skeg: ${readSkegVersion()}`);
+  lines.push(`- veritack: ${readVeritackVersion()}`);
   lines.push(`- node: ${process.version}`);
   lines.push(
     `- git: ${git.available ? 'available' : `unavailable (${git.error ?? 'unknown'})`}`,
   );
-  lines.push(`- userDir: ${skegUserDir()}`);
+  lines.push(`- userDir: ${veritackUserDir()}`);
   lines.push('');
 
   // Config

@@ -1,5 +1,5 @@
 /**
- * Skeg 宿主无关核心类型（schema v2）。
+ * Veritack 宿主无关核心类型（schema v2）。
  * 字段稳定；未来更换宿主只需替换读写层。
  */
 
@@ -142,7 +142,7 @@ export type CheckMatcher =
   | { kind: 'argv'; executable: string; args: string[] }
   | { kind: 'regex'; pattern: string };
 
-export type SkegConfig = {
+export type VeritackConfig = {
   defaultPolicy: RiskLevel;
   /** 注入指导密度，默认 standard */
   guidance: GuidanceDensity;
@@ -176,7 +176,7 @@ export type RiskHit = {
   source?: EvidenceSource;
 };
 
-/** `.skeg/config.json` 中 providers[] 归一后的条目 */
+/** `.veritack/config.json` 中 providers[] 归一后的条目 */
 export type ProviderConfigEntry = {
   id: string;
   spec: string;
@@ -192,15 +192,15 @@ export type ConfigDiagnostic = {
 };
 
 export type ConfigLoadResult = {
-  config: SkegConfig;
+  config: VeritackConfig;
   source: 'project' | 'default' | 'last-known-good';
   diagnostics: ConfigDiagnostic[];
 };
 
 /** Pi session custom entry type for RunState. */
-export const RUN_ENTRY_TYPE = 'skeg/run';
+export const RUN_ENTRY_TYPE = 'veritack/run';
 
-export const SKEG_DIR = '.skeg';
+export const VERITACK_DIR = '.veritack';
 export const CONFIG_FILE = 'config.json';
 export const PROJECT_FILE = 'project.md';
 

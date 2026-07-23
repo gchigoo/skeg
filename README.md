@@ -1,12 +1,13 @@
-# Skeg
+# Veritack
 
-Stay light. Hold course.
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-Skeg is a minimal engineering workflow for coding agents.
+**Verify the run. Hold the course.**
+
+Veritack is a minimal evidence and risk control layer for coding agents.
 
 It does not tell the agent how to work.
-It tracks intent, enforces critical boundaries, collects verification
-evidence, and preserves only the decisions worth keeping.
+It ensures that "done" is backed by current evidence.
 
 The default workflow is:
 
@@ -19,55 +20,54 @@ Everything else is an extension.
 ## Install (Pi)
 
 ```bash
-pi install /absolute/path/to/skeg
-# or, from a project:
-pi install -l ./path/to/skeg
+pi install @veritack/pi-veritack
+# or, from a checkout:
+pi install /absolute/path/to/veritack
+pi install -l ./path/to/veritack
 ```
 
-Package name: `@gchigoo/skeg` (Pi peer: `@earendil-works/pi-coding-agent` `>=0.80.0 <0.90.0`).
+Package: `@veritack/pi-veritack` (Pi peer: `@earendil-works/pi-coding-agent` `>=0.80.0 <0.90.0`).
 
 In a repo:
 
 ```
-/skeg init
-/skeg start fix redirect query loss after login
-/skeg status
-/skeg record incident Avatar cache | clear current-user query on logout
-/skeg finish
+/veritack init
+/veritack start fix redirect query loss after login
+/veritack status
+/veritack record incident Avatar cache | clear current-user query on logout
+/veritack finish
 ```
 
 Prompt template:
 
 ```
-/skeg-fix user still sees old avatar after logout
+/veritack-fix user still sees old avatar after logout
 ```
 
 ## Status
 
-**v1.3.0** — Ecosystem Proof：独立版本化 Provider 包、移除 compat 与通配 exports。
+**v1.3.1** — Brand rename to Veritack + Provider Truth (semantic cases, non-executing check rejection).
 
-### 稳定面承诺
+### Stability surface
 
-- 命令面：仅 `/skeg …`（扁平 `/init` `/run` 等已移除；请用 `/skeg start|status|finish|…`）
-- Provider：编译入口 `@gchigoo/skeg/provider-api` + `apiVersion: 1` / `defineProvider`
-- 独立包：`providers/skeg-provider-{postgres,monorepo,rust}`（各自版本与 release tag）
-- Config：`policies` / 结构化或 `/regex/` CheckMatcher；普通子串 matcher 拒绝
-- Closure：当前 revision 证据；`--waive` / `--abandon` 显式出口
-- JSON / Why：`/skeg status --json` / `--why`
-- 长 session：超阈值 compact RunState；`skeg/context` 默认摘要，`SKEG_CONTEXT_AUDIT=full` 落全文
-- 包导出：仅 `./provider-api` 与 `./package.json`（通配 `./*` 已移除）
+- Command surface: `/veritack …` only
+- Provider API: `@veritack/pi-veritack/provider-api` + `apiVersion: 1` / `defineProvider`
+- Independent packages: `@veritack/postgres`, `@veritack/monorepo`, `@veritack/rust`
+- Config: `policies` / structured or `/regex/` CheckMatcher; bare substring matchers rejected
+- Closure: current-revision evidence; `--waive` / `--abandon` explicit exits
+- JSON / Why: `/veritack status --json` / `--why`
+- Long sessions: threshold compact of RunState; `veritack/context` summary by default (`VERITACK_CONTEXT_AUDIT=full` for full text)
+- Package exports: only `./provider-api` and `./package.json`
 
 ```bash
 npm run verify
-npm run verify:dist   # verify + pack dry-run + dogfood/dist-e2e
-npm run smoke         # 实机：/skeg 剧本（需模型 API）
+npm run verify:dist
+npm run smoke
 npm run smoke -- --dist
 npm run dogfood:adversarial
 npm run dogfood:runtime
-npm run dogfood:host -- --cwd . --profile skeg
+npm run dogfood:host -- --cwd . --profile veritack
 ```
-
-Smoke 剧本：lean1 编辑后跑 `npm test -- <path>` 再 `/skeg finish`；lean2 无证据须被拒绝并用 `--abandon` 清场；risk gate 后 `/skeg finish --waive`。注入审计默认摘要；smoke/host 设 `SKEG_CONTEXT_AUDIT=full` 以观测全文。
 
 ## Config highlights
 
@@ -89,7 +89,7 @@ Smoke 剧本：lean1 编辑后跑 `npm test -- <path>` 再 `/skeg finish`；lean
   "providers": [
     {
       "id": "postgres",
-      "spec": ".skeg/providers/postgres.mjs",
+      "spec": "@veritack/postgres",
       "required": true,
       "priority": 100
     }
@@ -99,10 +99,10 @@ Smoke 剧本：lean1 编辑后跑 `npm test -- <path>` 再 `/skeg finish`；lean
 
 ### Writing a provider
 
-只依赖正式入口 `@gchigoo/skeg/provider-api`（编译产物，自包含只读 V1 DTO），禁止 `src/*` 内部导入。独立包见 `providers/`（postgres / monorepo / rust；零运行时依赖的 `.mjs`，各含认证清单）。
+Depend only on `@veritack/pi-veritack/provider-api`. Do not import `src/*`.
 
 ```js
-import { defineProvider } from '@gchigoo/skeg/provider-api';
+import { defineProvider } from '@veritack/pi-veritack/provider-api';
 
 export default defineProvider({
   apiVersion: 1,
@@ -116,19 +116,18 @@ export default defineProvider({
 });
 ```
 
-本地开发可先 `npm run build` 生成 `dist/`，再按包导出解析类型与运行时。
+Ship a `provider-cases.json` with accept/reject (checks) or expectTriggers (policies).
 
 ```bash
-npx skeg-provider-test .skeg/providers/postgres.mjs
-# 或仓库内全部独立 Provider：
+npx veritack-provider-test ./index.mjs --cases ./provider-cases.json
 npm run check:providers
 ```
 
-发布独立 Provider：推送 tag `skeg-provider-<name>-v<version>`（须等于该包 `package.json` version）。
+Release an independent provider with tag `provider-<name>-v<version>` (must match that package's `package.json` version).
 
 ### Matcher migration
 
-普通子串 matcher 已拒绝（配置诊断 `error` 并忽略该条目）。请改用 `/regex/` 或结构化 `CheckMatcher`：
+Bare substring matchers are rejected. Use `/regex/` or structured `CheckMatcher`:
 
 ```json
 {
@@ -140,23 +139,18 @@ npm run check:providers
 }
 ```
 
-- 成功修改工作区 → `revision+1`，旧 checks 变 stale；`/skeg finish` 只接受当前 revision 证据
-- `/skeg finish --waive "reason"` 显式承担风险
-- `cat migrations/*.sql` 为 read，不记变更、不弹 gate
-- Providers 仅可位于 `.skeg/providers/**`（或裸包名）；须 `/skeg trust <spec>` 后才加载；内容变更后信任失效
-- `/skeg providers` / `trust` / `untrust` / `providers reload` 管理扩展信任
-- `required` PolicyProvider 失效时阻断 mutation；optional 失败仅 warning + session 禁用
-- `/skeg status` 展示 check/gate 的 `provider:<id>` provenance；`--json` 输出 Evidence Report；`--why` 输出可验证解释
-- `/skeg doctor` 只读诊断 config / trust / providers / run / env
-- `pnpm test || true` 等掩盖退出码的命令不记为 check 证据
-- Providers 可追加 Policy / Check / Record；不能增加新的核心阶段状态机（见 `NON_GOALS.md`）
+- Workspace mutation → `revision+1`; `/veritack finish` accepts only current-revision evidence
+- `/veritack finish --waive "reason"` is an explicit risk acceptance
+- Providers must live under `.veritack/providers/**` or be a bare package name; load only after `/veritack trust <spec>`
+- `required` PolicyProvider failure blocks mutation; optional failure is warning + session disable
+- `/veritack doctor` is a read-only diagnosis of config / trust / providers / run / env
 
 ## Develop
 
 ```bash
 npm install
-npm run verify    # test + typecheck + budgets + adversarial + dogfood
-npm run smoke     # Pi 实机抽测（需本机已装 pi）
+npm run verify
+npm run smoke
 ```
 
 See `NON_GOALS.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`.

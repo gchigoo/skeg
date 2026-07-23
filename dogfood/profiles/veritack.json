@@ -1,5 +1,5 @@
 {
-  "name": "skeg",
+  "name": "veritack",
   "projectMd": [
     "# Project",
     "",
@@ -48,8 +48,8 @@
     "recordAfter": "incident phase accounting heal | bash writes and agent_end git heal advance orient to change"
   },
   "protectedTouch": {
-    "path": ".env.skeg-dogfood",
-    "content": "SKEG_DOGFOOD={{marker}}\n"
+    "path": ".env.veritack-dogfood",
+    "content": "VERITACK_DOGFOOD={{marker}}\n"
   },
   "authEdit": {
     "path": "dogfood/AUTH_SCRATCH.js",
@@ -61,10 +61,10 @@
       "   export const marker = '{{marker}}';",
       "2. You MUST perform a real write/edit even if a similar marker exists.",
       "3. Do not edit other files.",
-      "4. If a Skeg gate confirm appears, host will approve.",
+      "4. If a Veritack gate confirm appears, host will approve.",
       "5. Reply DONE after the write/edit tool succeeds."
     ]
   },
-  "gitignoreEntries": [".skeg/", ".pi/", "dogfood/HOST_SCRATCH.md", ".env.skeg-dogfood"],
-  "dependencyMarker": "skeg-dogfood-v033"
+  "gitignoreEntries": [".veritack/", ".pi/", "dogfood/HOST_SCRATCH.md", ".env.veritack-dogfood"],
+  "dependencyMarker": "veritack-dogfood-v033"
 }

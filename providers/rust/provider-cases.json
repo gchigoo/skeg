@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "checks": {
+    "accept": [
+      { "command": "cargo test", "name": "test" },
+      { "command": "cargo test auth", "name": "test" },
+      { "command": "cargo test --workspace", "name": "test" },
+      { "command": "cargo nextest run", "name": "test" },
+      { "command": "cargo nextest run -p app", "name": "test" },
+      { "command": "cargo clippy", "name": "lint" },
+      { "command": "cargo fmt -- --check", "name": "fmt" }
+    ],
+    "reject": [
+      "cargo test --no-run",
+      "cargo test -- --list",
+      "cargo test -- --list --format terse",
+      "cargo test --list",
+      "cargo nextest list",
+      "cargo nextest archive",
+      "echo cargo test"
+    ]
+  }
+}

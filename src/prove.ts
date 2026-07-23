@@ -22,7 +22,7 @@ import type {
   CheckRun,
   RiskSignal,
   RunState,
-  SkegConfig,
+  VeritackConfig,
   WorkspaceBaseline,
 } from './types.ts';
 import { EMPTY_BASELINE } from './types.ts';
@@ -121,7 +121,7 @@ export function readGitDiff(
 export function analyzeProveSnapshot(
   snapshot: GitDiffSnapshot,
   run: RunState,
-  config: SkegConfig,
+  config: VeritackConfig,
 ): ProveAnalysis {
   const checks: ProveAnalysis['checks'] = [];
   const signals: ProveAnalysis['signals'] = [];
@@ -254,7 +254,7 @@ export function healChangedFilesFromGit(
 export function runProveChecks(
   cwd: string,
   run: RunState,
-  config: SkegConfig,
+  config: VeritackConfig,
   execGit: ExecGit = defaultExecGit,
 ): ProveResult {
   const snapshot = readGitDiff(cwd, run.baseline, execGit);

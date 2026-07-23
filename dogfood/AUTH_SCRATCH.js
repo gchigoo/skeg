@@ -1,2 +1,2 @@
-// skeg-dogfood-auth
-export const marker = 'skeg-dogfood-auth';
+// veritack-dogfood-auth
+export const marker = 'veritack-dogfood-auth';

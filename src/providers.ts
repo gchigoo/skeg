@@ -12,8 +12,8 @@ import {
   type ProviderCapability,
   type RecordSelection,
   type RecordSelector,
-  type SkegProviderV1,
-  SKEG_PROVIDER_API_VERSION,
+  type VeritackProviderV1,
+  VERITACK_PROVIDER_API_VERSION,
 } from './provider-api.ts';
 import {
   riskHitKey,
@@ -34,7 +34,7 @@ import type {
   ConfigDiagnostic,
   ProviderConfigEntry,
   RiskHit,
-  SkegConfig,
+  VeritackConfig,
 } from './types.ts';
 
 export type {
@@ -126,15 +126,15 @@ function normalizeBundle(
     return { id: fallbackId, capabilities: [], diagnostics };
   }
 
-  if (root.apiVersion !== SKEG_PROVIDER_API_VERSION) {
+  if (root.apiVersion !== VERITACK_PROVIDER_API_VERSION) {
     diagnostics.push({
       level: 'error',
       path,
-      message: `Unsupported provider apiVersion ${String(root.apiVersion)}; expected ${SKEG_PROVIDER_API_VERSION}`,
+      message: `Unsupported provider apiVersion ${String(root.apiVersion)}; expected ${VERITACK_PROVIDER_API_VERSION}`,
     });
     return { id: fallbackId, capabilities: [], diagnostics };
   }
-  const v1 = root as unknown as SkegProviderV1;
+  const v1 = root as unknown as VeritackProviderV1;
   const id =
     typeof v1.id === 'string' && v1.id.trim() ? v1.id.trim() : fallbackId;
 
@@ -253,7 +253,7 @@ function normalizeBundle(
  */
 export async function loadProviders(
   cwd: string,
-  config: SkegConfig,
+  config: VeritackConfig,
 ): Promise<LoadedProviders> {
   const entries = config.providers ?? [];
   const configHash = providersConfigHash(entries);
@@ -353,7 +353,7 @@ export async function loadProviders(
       }
       continue;
     }
-    const importTarget = `${resolved.target}?skeg=${hashed.hash}`;
+    const importTarget = `${resolved.target}?veritack=${hashed.hash}`;
 
     try {
       const mod = (await import(importTarget)) as {
@@ -485,7 +485,7 @@ export function requiredPolicyUnavailable(
 export function mergePolicyHits(
   builtin: RiskHit[],
   action: ProviderAction,
-  config: SkegConfig,
+  config: VeritackConfig,
   policies: NamedProvider<PolicyProvider>[],
   disabledSpecs: ReadonlySet<string> = new Set(),
 ): {
@@ -547,7 +547,7 @@ export function mergePolicyHits(
  */
 export function classifyWithProviders(
   command: string,
-  config: SkegConfig,
+  config: VeritackConfig,
   builtin: ClassifiedCheck | null,
   checks: NamedProvider<CheckProvider>[],
   disabledSpecs: ReadonlySet<string> = new Set(),
@@ -726,14 +726,14 @@ export function emptyProviders(): LoadedProviders {
  */
 export function formatProvidersStatus(
   cwd: string,
-  config: SkegConfig,
+  config: VeritackConfig,
   loaded: LoadedProviders,
 ): string {
   const entries = config.providers ?? [];
   if (entries.length === 0) {
-    return 'No providers configured in .skeg/config.json';
+    return 'No providers configured in .veritack/config.json';
   }
-  const lines = ['Skeg providers:', ''];
+  const lines = ['Veritack providers:', ''];
   for (const entry of entries) {
     const trimmed = entry.spec.trim();
     const classified = classifyProviderSpec(trimmed);

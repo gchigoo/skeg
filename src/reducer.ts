@@ -3,7 +3,7 @@
  */
 import { EMPTY_BASELINE, SCHEMA_VERSION, type CheckRun, type Gate, type RiskHit, type RiskLevel, type RiskSignal, type RunContract, type RunState, type Waiver, type WorkspaceBaseline } from './types.ts';
 
-export type SkegEvent =
+export type VeritackEvent =
   | { type: 'RUN_STARTED'; intent: string; risk: RiskLevel; baseline?: WorkspaceBaseline; contract?: RunContract; id?: string; now?: string }
   | { type: 'MUTATION_COMMITTED'; paths: string[]; now?: string }
   | { type: 'CHECK_RECORDED'; check: Omit<CheckRun, 'id' | 'revision' | 'observedAt'> & Partial<Pick<CheckRun, 'id' | 'revision' | 'observedAt'>>; now?: string }
@@ -40,7 +40,7 @@ export function sameState(a: RunState | null, b: RunState | null): boolean {
  * @param event 事件
  * @returns 下一状态
  */
-export function reduce(run: RunState | null, event: SkegEvent): RunState {
+export function reduce(run: RunState | null, event: VeritackEvent): RunState {
   const now = ('now' in event && event.now) || new Date().toISOString();
 
   if (event.type === 'RUN_STARTED') {

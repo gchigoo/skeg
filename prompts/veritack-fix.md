@@ -1,9 +1,9 @@
 ---
-description: Start a Skeg run for a defect
+description: Start a Veritack run for a defect
 argument-hint: "<defect description>"
 ---
-<!-- skeg:run -->
-Start a Skeg run for the following defect:
+<!-- veritack:run -->
+Start a Veritack run for the following defect:
 
 $@
 

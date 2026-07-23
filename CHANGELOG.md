@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.3.1 — 2026-07-23
+
+Brand rename to Veritack + Provider Truth.
+
+### Changed
+- Package: `@gchigoo/skeg` → `@veritack/pi-veritack`
+- Command: `/skeg` → `/veritack`; prompt `/skeg-fix` → `/veritack-fix`; marker `<!-- veritack:run -->`
+- Paths: `.skeg/` → `.veritack/`; `~/.skeg/` → `~/.veritack/`
+- Session entries: `veritack/run`, `veritack/context`
+- Env: `SKEG_*` → `VERITACK_*`
+- Public API symbols: `VeritackProviderV1`, `VERITACK_PROVIDER_API_VERSION`, `defineProvider`
+- Providers: `@veritack/{postgres,monorepo,rust}` @ `1.1.0` under `providers/{postgres,monorepo,rust}`
+- Release tags: `provider-<name>-v*`
+- Bin: `veritack-provider-test`
+- Tagline: Verify the run. Hold the course. / 验证每次运行，守住工程航向
+- README bilingual: `README.md` + `README.zh-CN.md`
+
+### Fixed
+- Rust provider rejects non-executing `cargo test --no-run` / `--list` and non-`run` nextest modes
+- Monorepo provider rejects dry-run / help / list-only modes
+- Postgres provider skips migration policy on read/grep tools
+- Provider release notes install path uses `./<tarball>.tgz`
+
+### Added
+- `provider-cases.json` semantic manifests per provider
+- `veritack-provider-test --cases <file>`
+- Provider release clean-directory tarball smoke
+
 ## 1.3.0 — 2026-07-23
 
 Ecosystem Proof：独立版本化 Provider 包；移除 v1.1 预告的 deprecated 面。

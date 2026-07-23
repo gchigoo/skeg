@@ -2,7 +2,7 @@
 node_modules/
 dist/
 .pi/
-.skeg/
+.veritack/
 *.log
 .DS_Store
 
@@ -23,10 +23,10 @@ dogfood/FRICTION.md
 dogfood/HOST_DOGFOOD.md
 dogfood/HOST_SCRATCH.md
 dogfood/events/
-.env.skeg-dogfood
+.env.veritack-dogfood
 
 # personal-host dogfood profiles（自己项目路径/命令，本地-only）
-# 保留 skeg.json 作为包自测基线
+# 保留 veritack.json 作为包自测基线
 dogfood/profiles/Blog.json
 dogfood/profiles/repo-nav.json
 dogfood/profiles/st-wb-generator.json

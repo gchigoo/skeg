@@ -4,7 +4,7 @@
  */
 import { requiredChecksFromContract } from './contract.ts';
 import { currentChecks } from './run.ts';
-import type { Gate, RiskSignal, RunState, SkegConfig, Waiver } from './types.ts';
+import type { Gate, RiskSignal, RunState, VeritackConfig, Waiver } from './types.ts';
 
 export type ClosureEvaluation = {
   ok: boolean;
@@ -24,7 +24,7 @@ export type ClosureEvaluation = {
  */
 export function evaluateClosure(
   run: RunState,
-  config: SkegConfig,
+  config: VeritackConfig,
 ): ClosureEvaluation {
   // 契约优先：启动时冻结的 checks 不被运行中配置弱化
   const requiredFromConfig = requiredChecksFromContract(run, config);

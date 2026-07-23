@@ -13,7 +13,7 @@ import {
 } from './contract.ts';
 import { reduce } from './reducer.ts';
 import { createRun, upsertCheck } from './run.ts';
-import type { SkegConfig } from './types.ts';
+import type { VeritackConfig } from './types.ts';
 
 describe('buildRunContract', () => {
   it('snapshots checks and hashes', () => {
@@ -28,7 +28,7 @@ describe('buildRunContract', () => {
 
 describe('ConfigDriftBypass', () => {
   it('finish still requires original guarded contract after config weaken', () => {
-    const startConfig: SkegConfig = {
+    const startConfig: VeritackConfig = {
       ...DEFAULT_CONFIG,
       defaultPolicy: 'guarded',
       checks: {
@@ -44,7 +44,7 @@ describe('ConfigDriftBypass', () => {
     });
 
     // 运行中弱化配置：只剩 diff
-    const weakened: SkegConfig = {
+    const weakened: VeritackConfig = {
       ...startConfig,
       checks: {
         default: ['diff'],

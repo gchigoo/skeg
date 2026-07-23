@@ -3,14 +3,14 @@
  */
 import { createHash } from 'node:crypto';
 import { providersConfigHash } from './trust.ts';
-import type { RunContract, RunState, SkegConfig } from './types.ts';
+import type { RunContract, RunState, VeritackConfig } from './types.ts';
 
 /**
  * 计算与验证契约相关的配置哈希（checks / policies / defaultPolicy）。
  * @param config 当前配置
  * @returns sha256 hex
  */
-export function configContractHash(config: SkegConfig): string {
+export function configContractHash(config: VeritackConfig): string {
   const payload = {
     defaultPolicy: config.defaultPolicy,
     checks: {
@@ -32,7 +32,7 @@ export function configContractHash(config: SkegConfig): string {
  * @returns RunContract
  */
 export function buildRunContract(
-  config: SkegConfig,
+  config: VeritackConfig,
   createdAt?: string,
 ): RunContract {
   return {
@@ -53,7 +53,7 @@ export function buildRunContract(
  */
 export function requiredChecksFromContract(
   run: RunState,
-  config: SkegConfig,
+  config: VeritackConfig,
 ): string[] {
   if (run.contract) {
     return run.risk === 'guarded'
@@ -73,7 +73,7 @@ export function requiredChecksFromContract(
  */
 export function hasContractDrift(
   run: RunState | null,
-  config: SkegConfig,
+  config: VeritackConfig,
 ): boolean {
   if (!run?.contract) return false;
   return (

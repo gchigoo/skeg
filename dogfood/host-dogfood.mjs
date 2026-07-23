@@ -1,13 +1,13 @@
 /**
- * 真实宿主 dogfood：按 profile 在指定项目 cwd 上跑 ≥10 个 Skeg run，追加 FRICTION.md。
+ * 真实宿主 dogfood：按 profile 在指定项目 cwd 上跑 ≥10 个 Veritack run，追加 FRICTION.md。
  *
  * 用法：
  *   node dogfood/host-dogfood.mjs --cwd D:/Projects/ado-bug-agent
- *   node dogfood/host-dogfood.mjs --cwd . --profile skeg
+ *   node dogfood/host-dogfood.mjs --cwd . --profile veritack
  *   node dogfood/host-dogfood.mjs --cwd <project> --profile ./dogfood/profiles/custom.json
  *   node dogfood/host-dogfood.mjs --cwd D:/Personal/Blog --profile Blog
- *   node dogfood/host-dogfood.mjs --cwd . --profile skeg --dump-events
- *   node dogfood/host-dogfood.mjs --cwd . --profile skeg --repeat 3 --dump-events
+ *   node dogfood/host-dogfood.mjs --cwd . --profile veritack --dump-events
+ *   node dogfood/host-dogfood.mjs --cwd . --profile veritack --repeat 3 --dump-events
  */
 import { spawn } from 'node:child_process';
 import {
@@ -19,7 +19,7 @@ import {
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SKEG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const VERITACK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 
 /**
@@ -48,10 +48,10 @@ if (!cwdArg) {
 }
 const HOST = resolve(cwdArg);
 const TIMEOUT_MS = 180_000;
-const MODEL = process.env.SKEG_SMOKE_MODEL || 'deepseek/deepseek-v4-flash';
+const MODEL = process.env.VERITACK_SMOKE_MODEL || 'deepseek/deepseek-v4-flash';
 const DUMP_EVENTS = hasFlag('--dump-events');
 const REPEAT = Math.max(1, Number.parseInt(flagValue('--repeat') || '1', 10) || 1);
-const EVENTS_DIR = join(SKEG_ROOT, 'dogfood', 'events');
+const EVENTS_DIR = join(VERITACK_ROOT, 'dogfood', 'events');
 
 /**
  * 将 profile 中的 {{marker}} 替换为每轮唯一 token。
@@ -83,7 +83,7 @@ function ensureMarker(text, marker) {
   if (text.includes(marker)) return text;
   if (text.includes('{{marker}}')) return applyMarker(text, marker);
   const trimmed = text.replace(/\s+$/, '');
-  return `${trimmed}\nSKEG_MARKER=${marker}\n`;
+  return `${trimmed}\nVERITACK_MARKER=${marker}\n`;
 }
 
 /**
@@ -95,13 +95,13 @@ function ensureMarker(text, marker) {
 function resolveProfilePath(raw, host) {
   if (raw) {
     if (existsSync(raw)) return resolve(raw);
-    const named = join(SKEG_ROOT, 'dogfood', 'profiles', `${raw}.json`);
+    const named = join(VERITACK_ROOT, 'dogfood', 'profiles', `${raw}.json`);
     if (existsSync(named)) return named;
     throw new Error(`Profile not found: ${raw}`);
   }
   // 默认：按宿主目录名匹配，否则 generic 失败提示
   const guess = basename(host);
-  const named = join(SKEG_ROOT, 'dogfood', 'profiles', `${guess}.json`);
+  const named = join(VERITACK_ROOT, 'dogfood', 'profiles', `${guess}.json`);
   if (existsSync(named)) return named;
   throw new Error(
     `No --profile and no dogfood/profiles/${guess}.json; pass --profile <name|path>`,
@@ -115,7 +115,7 @@ const PROFILE = JSON.parse(readFileSync(PROFILE_PATH, 'utf8'));
 /** @typedef {{ type: string, [k: string]: unknown }} RpcMsg */
 
 /**
- * 确保宿主已挂 Skeg 包。
+ * 确保宿主已挂 Veritack 包。
  * @param {string} root
  */
 function ensurePiPackage(root) {
@@ -130,8 +130,8 @@ function ensurePiPackage(root) {
     }
   }
   const packages = Array.isArray(settings.packages) ? settings.packages : [];
-  if (!packages.includes(SKEG_ROOT)) {
-    settings.packages = [...packages, SKEG_ROOT];
+  if (!packages.includes(VERITACK_ROOT)) {
+    settings.packages = [...packages, VERITACK_ROOT];
     writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
   }
 }
@@ -159,12 +159,12 @@ class PiRpc {
       ? MODEL.split('/')
       : ['deepseek', MODEL];
     const cliJs =
-      process.env.SKEG_PI_CLI ||
+      process.env.VERITACK_PI_CLI ||
       [
-        join(SKEG_ROOT, 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
+        join(VERITACK_ROOT, 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
         'D:/Software/nodejs/node_modules/@earendil-works/pi-coding-agent/dist/cli.js',
       ].find((p) => existsSync(p));
-    if (!cliJs) throw new Error('pi cli.js not found; set SKEG_PI_CLI');
+    if (!cliJs) throw new Error('pi cli.js not found; set VERITACK_PI_CLI');
 
     this.proc = spawn(
       process.execPath,
@@ -181,17 +181,17 @@ class PiRpc {
         '--model',
         modelId,
         '--name',
-        'skeg-host-dogfood',
+        'veritack-host-dogfood',
       ],
       {
         cwd: this.cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, SKEG_CONTEXT_AUDIT: 'full' },
+        env: { ...process.env, VERITACK_CONTEXT_AUDIT: 'full' },
       },
     );
     this.proc.on('error', (err) => console.error('pi spawn error:', err));
     this.proc.stderr.on('data', (d) => {
-      if (process.env.SKEG_SMOKE_DEBUG) process.stderr.write(`[pi stderr] ${d}`);
+      if (process.env.VERITACK_SMOKE_DEBUG) process.stderr.write(`[pi stderr] ${d}`);
     });
     this.proc.stdout.on('data', (chunk) => {
       this.buf += chunk.toString();
@@ -344,23 +344,23 @@ class PiRpc {
   }
 
   /** @returns {Promise<object[]>} */
-  async getSkegRuns() {
+  async getVeritackRuns() {
     const entries = await this.getEntries();
     return entries
-      .filter((e) => e.type === 'custom' && e.customType === 'skeg/run')
+      .filter((e) => e.type === 'custom' && e.customType === 'veritack/run')
       .map((e) => e.data);
   }
 
   /**
-   * 注入审计：core 在 systemPrompt 内容 hash 变化时 appendEntry(skeg/context)。
+   * 注入审计：core 在 systemPrompt 内容 hash 变化时 appendEntry(veritack/context)。
    * @returns {Promise<string[]>}
    */
-  async getSkegContexts() {
+  async getVeritackContexts() {
     const entries = await this.getEntries();
     return entries
       .filter(
         (e) =>
-          e.customType === 'skeg/context' &&
+          e.customType === 'veritack/context' &&
           (e.type === 'custom_message' || e.type === 'custom'),
       )
       .map((e) => {
@@ -412,11 +412,11 @@ function buildScenarios(profile) {
     : String(profile.projectMd || '');
   const checksJson = JSON.stringify(profile.checksCommands || {}, null, 2);
   const authPaths = JSON.stringify(profile.authPaths || []);
-  const gitignoreLines = (profile.gitignoreEntries || ['.skeg/', '.pi/']).join(
+  const gitignoreLines = (profile.gitignoreEntries || ['.veritack/', '.pi/']).join(
     '\n   ',
   );
   // 每次跑用唯一 marker，避免上次残留导致 agent 跳过 edit、gate 不触发
-  const marker = `${profile.dependencyMarker || 'skeg-dogfood'}-${Date.now().toString(36)}`;
+  const marker = `${profile.dependencyMarker || 'veritack-dogfood'}-${Date.now().toString(36)}`;
   /** @type {any} */
   const editRaw = profile.edit || {};
   /** @type {any} */
@@ -433,27 +433,27 @@ function buildScenarios(profile) {
   }
   /** @type {any} */
   const protectedRaw = profile.protectedTouch || {
-    path: '.env.skeg-dogfood',
-    content: 'SKEG_DOGFOOD={{marker}}\n',
+    path: '.env.veritack-dogfood',
+    content: 'VERITACK_DOGFOOD={{marker}}\n',
   };
   const protectedTouch = {
-    path: protectedRaw.path || '.env.skeg-dogfood',
+    path: protectedRaw.path || '.env.veritack-dogfood',
     content: ensureMarker(
-      String(protectedRaw.content || 'SKEG_DOGFOOD={{marker}}\n'),
+      String(protectedRaw.content || 'VERITACK_DOGFOOD={{marker}}\n'),
       marker,
     ),
   };
   /** @type {any} */
   const authRaw = profile.authEdit || {
-    path: '.skeg-dogfood/auth-scratch.js',
+    path: '.veritack-dogfood/auth-scratch.js',
     needle: '{{marker}}',
     work: [
       'Do exactly this and stop:',
-      '1. Write/overwrite .skeg-dogfood/auth-scratch.js with exactly:',
+      '1. Write/overwrite .veritack-dogfood/auth-scratch.js with exactly:',
       '   // {{marker}}',
       "   export const marker = '{{marker}}';",
       '2. Do not edit other files.',
-      '3. If a Skeg gate confirm appears, host will approve.',
+      '3. If a Veritack gate confirm appears, host will approve.',
       '4. Reply DONE after the write/edit tool succeeds.',
     ],
   };
@@ -474,9 +474,9 @@ function buildScenarios(profile) {
   return [
     {
       id: 'df-01-project-md',
-      intent: `Fill .skeg/project.md for ${profile.name} stack and commands`,
+      intent: `Fill .veritack/project.md for ${profile.name} stack and commands`,
       work: [
-        'Edit ONLY .skeg/project.md with this content (overwrite):',
+        'Edit ONLY .veritack/project.md with this content (overwrite):',
         '',
         projectMd,
         '',
@@ -484,7 +484,7 @@ function buildScenarios(profile) {
       ].join('\n'),
       expect: {
         fileIncludes: [
-          { path: '.skeg/project.md', needle: profile.fullTest || 'npm test' },
+          { path: '.veritack/project.md', needle: profile.fullTest || 'npm test' },
         ],
         phaseNotOrient: true,
       },
@@ -492,9 +492,9 @@ function buildScenarios(profile) {
     },
     {
       id: 'df-02-checks-commands',
-      intent: `Map checks.commands into .skeg/config.json for ${profile.name}`,
+      intent: `Map checks.commands into .veritack/config.json for ${profile.name}`,
       work: [
-        'Edit ONLY .skeg/config.json.',
+        'Edit ONLY .veritack/config.json.',
         'Merge these fields into the existing JSON (keep other keys):',
         `- "authPaths": ${authPaths}`,
         `- checks.commands = ${checksJson}`,
@@ -502,9 +502,9 @@ function buildScenarios(profile) {
       ].join('\n'),
       expect: {
         fileIncludes: [
-          { path: '.skeg/config.json', needle: 'checks' },
+          { path: '.veritack/config.json', needle: 'checks' },
           {
-            path: '.skeg/config.json',
+            path: '.veritack/config.json',
             needle: Object.keys(profile.checksCommands || {})[0] || 'test',
           },
         ],
@@ -600,7 +600,7 @@ function buildScenarios(profile) {
       intent: 'Confirm records index appears after prior decision/incident record',
       work: [
         'Do exactly this and stop:',
-        '1. Read .skeg/records/ directory listing via bash: ls .skeg/records',
+        '1. Read .veritack/records/ directory listing via bash: ls .veritack/records',
         '2. Do not edit files.',
         '3. Reply DONE naming one DEC-/INC-/MIG- id if present.',
       ].join('\n'),
@@ -618,7 +618,7 @@ function buildScenarios(profile) {
         '3. Reply DONE.',
       ].join('\n'),
       expect: {
-        fileIncludes: (profile.gitignoreEntries || ['.skeg/', '.pi/']).map(
+        fileIncludes: (profile.gitignoreEntries || ['.veritack/', '.pi/']).map(
           (needle) => ({ path: '.gitignore', needle }),
         ),
         phaseNotOrient: true,
@@ -630,10 +630,10 @@ function buildScenarios(profile) {
       intent: 'Touch package.json keywords to exercise dependencyChange gate',
       work: [
         'Do exactly this and stop:',
-        `1. Edit package.json keywords via write/edit tool: remove every keyword matching /^skeg-dogfood/`,
+        `1. Edit package.json keywords via write/edit tool: remove every keyword matching /^veritack-dogfood/`,
         `   then append exactly "${marker}" (a fresh unique token). You MUST perform a real write even if a similar marker exists.`,
         '2. Do not use bash to edit the file.',
-        '3. If a Skeg gate confirm appears, host will approve.',
+        '3. If a Veritack gate confirm appears, host will approve.',
         '4. Reply DONE after the write/edit tool succeeds.',
       ].join('\n'),
       expect: { gateTrigger: 'dependencyChange', phaseNotOrient: true },
@@ -658,13 +658,13 @@ function buildScenarios(profile) {
       work: [
         'Do exactly this and stop:',
         `1. Write/overwrite ${protectedTouch.path} with exactly this content via write/edit tool (not bash):`,
-        String(protectedTouch.content || 'SKEG_DOGFOOD=1\n')
+        String(protectedTouch.content || 'VERITACK_DOGFOOD=1\n')
           .split('\n')
           .filter((l) => l.length > 0)
           .map((l) => `   ${l}`)
-          .join('\n') || '   SKEG_DOGFOOD=1',
+          .join('\n') || '   VERITACK_DOGFOOD=1',
         '2. Do not use bash to edit the file.',
-        '3. If a Skeg gate confirm appears, host will approve.',
+        '3. If a Veritack gate confirm appears, host will approve.',
         '4. Reply DONE after the write/edit tool succeeds.',
       ].join('\n'),
       expect: {
@@ -672,7 +672,7 @@ function buildScenarios(profile) {
         fileIncludes: [
           {
             path: protectedTouch.path,
-            needle: (protectedTouch.content || 'SKEG_DOGFOOD').split('\n')[0],
+            needle: (protectedTouch.content || 'VERITACK_DOGFOOD').split('\n')[0],
           },
         ],
         phaseNotOrient: true,
@@ -739,10 +739,10 @@ async function runScenario(pi, scenario, round = 0) {
 
   pi.notifies = [];
   pi.uiRequests = [];
-  await pi.prompt(`/skeg start ${scenario.intent}`);
+  await pi.prompt(`/veritack start ${scenario.intent}`);
   if (!pi.notifies.some((n) => /Started run/i.test(n.message || ''))) {
     pass = false;
-    frictions.push('major|/skeg start did not notify Started run');
+    frictions.push('major|/veritack start did not notify Started run');
   }
 
   await pi.prompt(scenario.work);
@@ -751,7 +751,7 @@ async function runScenario(pi, scenario, round = 0) {
     const gates = pi.uiRequests.filter(
       (u) =>
         u.method === 'confirm' &&
-        new RegExp(`Skeg gate:\\s*${scenario.expect.gateTrigger}`, 'i').test(
+        new RegExp(`Veritack gate:\\s*${scenario.expect.gateTrigger}`, 'i').test(
           u.title || '',
         ),
     );
@@ -774,7 +774,7 @@ async function runScenario(pi, scenario, round = 0) {
   }
 
   if (scenario.expect?.recordsInjected) {
-    const contexts = await pi.getSkegContexts();
+    const contexts = await pi.getVeritackContexts();
     const hit = contexts.some(
       (c) =>
         /Records\s*\(relevant\)/i.test(c) &&
@@ -789,12 +789,12 @@ async function runScenario(pi, scenario, round = 0) {
   }
 
   pi.notifies = [];
-  await pi.prompt('/skeg status');
+  await pi.prompt('/veritack status');
   let status = pi.notifies.map((n) => n.message || '').join('\n');
   for (const needle of scenario.expect?.statusIncludes ?? []) {
     if (!status.includes(needle)) {
       pass = false;
-      frictions.push(`minor|/skeg status missing ${needle}`);
+      frictions.push(`minor|/veritack status missing ${needle}`);
     }
   }
   if (scenario.expect?.checkName) {
@@ -802,7 +802,7 @@ async function runScenario(pi, scenario, round = 0) {
     if (!loose.test(status)) {
       pass = false;
       frictions.push(
-        `major|expected check ${scenario.expect.checkName} in /skeg status: ${status.replace(/\n/g, ' | ').slice(0, 220)}`,
+        `major|expected check ${scenario.expect.checkName} in /veritack status: ${status.replace(/\n/g, ' | ').slice(0, 220)}`,
       );
     }
   }
@@ -810,7 +810,7 @@ async function runScenario(pi, scenario, round = 0) {
     if (!/Risk:\s*guarded/i.test(status)) {
       pass = false;
       frictions.push(
-        `major|expected Risk guarded in /skeg status: ${status.replace(/\n/g, ' | ').slice(0, 220)}`,
+        `major|expected Risk guarded in /veritack status: ${status.replace(/\n/g, ' | ').slice(0, 220)}`,
       );
     }
   }
@@ -829,25 +829,25 @@ async function runScenario(pi, scenario, round = 0) {
 
   if (scenario.recordAfter) {
     pi.notifies = [];
-    await pi.prompt(`/skeg record ${scenario.recordAfter}`);
+    await pi.prompt(`/veritack record ${scenario.recordAfter}`);
     if (!pi.notifies.some((n) => /Recorded/i.test(n.message || ''))) {
       pass = false;
-      frictions.push('major|/skeg record after run failed');
+      frictions.push('major|/veritack record after run failed');
     }
   }
 
   pi.notifies = [];
   if (scenario.abandon) {
-    await pi.prompt('/skeg finish --abandon');
+    await pi.prompt('/veritack finish --abandon');
     const abandonMsg = pi.notifies.map((n) => n.message || '').join('\n');
     if (!/Abandoned/i.test(abandonMsg)) {
       pass = false;
       frictions.push(
-        `major|/skeg finish --abandon did not notify Abandoned: ${abandonMsg.slice(0, 160)}`,
+        `major|/veritack finish --abandon did not notify Abandoned: ${abandonMsg.slice(0, 160)}`,
       );
     }
     pi.notifies = [];
-    await pi.prompt('/skeg status');
+    await pi.prompt('/veritack status');
     status = pi.notifies.map((n) => n.message || '').join('\n');
     if (scenario.expect?.abandoned && !/Status:\s*abandoned/i.test(status)) {
       pass = false;
@@ -856,11 +856,11 @@ async function runScenario(pi, scenario, round = 0) {
       );
     }
   } else if (scenario.finish !== false) {
-    await pi.prompt('/skeg finish');
+    await pi.prompt('/veritack finish');
     const finish = pi.notifies.map((n) => n.message || '').join('\n');
     if (!finish) {
       pass = false;
-      frictions.push('major|/skeg finish produced no notify');
+      frictions.push('major|/veritack finish produced no notify');
     }
   }
 
@@ -906,16 +906,16 @@ function countRounds(text) {
  */
 function appendFriction(results, hostName, round) {
   const date = new Date().toISOString().slice(0, 10);
-  const path = join(SKEG_ROOT, 'dogfood', 'FRICTION.md');
+  const path = join(VERITACK_ROOT, 'dogfood', 'FRICTION.md');
   const header = [
-    '# Skeg 真实使用摩擦日志',
+    '# Veritack 真实使用摩擦日志',
     '',
     '目标：真实 run 记录摩擦点，凭证据决策后续候选。',
     '',
     '## 怎么记',
     '',
-    '1. 项目内：`pi install -l /path/to/skeg` → `/skeg init`',
-    '2. 每个真实任务：`/skeg start <intent>` → 工作 → `/skeg status` → `/skeg finish`；值得留的用 `/skeg record`',
+    '1. 项目内：`pi install -l /path/to/veritack` → `/veritack init`',
+    '2. 每个真实任务：`/veritack start <intent>` → 工作 → `/veritack status` → `/veritack finish`；值得留的用 `/veritack record`',
     '3. 本文件追加 Round；无摩擦也记 `摩擦点=none`，仍计 1 个 run',
     '4. 严重度：`blocker` / `major` / `minor` / `nit` / `none`',
     '5. 宿主批量：`npm run dogfood:host -- --cwd <project> [--profile <name>]`',
@@ -923,7 +923,7 @@ function appendFriction(results, hostName, round) {
   ].join('\n');
 
   let existing = existsSync(path) ? readFileSync(path, 'utf8') : header;
-  if (!existing.includes('# Skeg')) {
+  if (!existing.includes('# Veritack')) {
     existing = header + existing;
   }
 
@@ -962,7 +962,7 @@ function appendFriction(results, hostName, round) {
     '',
     '### 候选证据快照',
     '',
-    `- skeg-strict: ${
+    `- veritack-strict: ${
       results.find((r) => r.id === 'df-10-dependency-gate')?.pass &&
       results.find((r) => r.id === 'df-12-protected-gate')?.pass
         ? 'gate 正常；暂无更严默认策略诉求 → no-go'
@@ -992,14 +992,14 @@ function appendFriction(results, hostName, round) {
 async function runOnce() {
   ensurePiPackage(HOST);
   const scenarios = buildScenarios(PROFILE);
-  const frictionPath = join(SKEG_ROOT, 'dogfood', 'FRICTION.md');
+  const frictionPath = join(VERITACK_ROOT, 'dogfood', 'FRICTION.md');
   const prior = existsSync(frictionPath)
     ? readFileSync(frictionPath, 'utf8')
     : '';
   const round = countRounds(prior) + 1;
 
   console.log(`Host:    ${HOST}`);
-  console.log(`Skeg:    ${SKEG_ROOT}`);
+  console.log(`Veritack:    ${VERITACK_ROOT}`);
   console.log(`Profile: ${PROFILE_PATH}`);
   console.log(`Model:   ${MODEL}`);
   console.log(`Round:   ${round}`);
@@ -1010,7 +1010,7 @@ async function runOnce() {
   await pi.start();
 
   pi.notifies = [];
-  await pi.prompt('/skeg init --force');
+  await pi.prompt('/veritack init --force');
   console.log(
     'init:',
     pi.notifies.map((n) => n.message).join(' | ').slice(0, 160),
@@ -1037,24 +1037,24 @@ async function runOnce() {
       });
       console.log(`FAIL  ${scenario.id} — ${message}`);
       try {
-        await pi.prompt('/skeg start --abandon');
+        await pi.prompt('/veritack start --abandon');
       } catch {
         /* ignore */
       }
     }
   }
 
-  const runs = await pi.getSkegRuns();
+  const runs = await pi.getVeritackRuns();
   console.log(`\nRunState entries: ${runs.length}`);
   await pi.stop();
 
   const written = appendFriction(results, PROFILE.name || basename(HOST), round);
 
-  const reportPath = join(SKEG_ROOT, 'dogfood', 'HOST_DOGFOOD.md');
+  const reportPath = join(VERITACK_ROOT, 'dogfood', 'HOST_DOGFOOD.md');
   writeFileSync(
     reportPath,
     [
-      `# Skeg host dogfood (${PROFILE.name || basename(HOST)})`,
+      `# Veritack host dogfood (${PROFILE.name || basename(HOST)})`,
       '',
       `Date: ${new Date().toISOString()}`,
       `Host: ${HOST}`,

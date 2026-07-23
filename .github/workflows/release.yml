@@ -36,7 +36,7 @@ jobs:
       - name: Checksums and SBOM
         run: |
           set -euo pipefail
-          TARBALL="$(ls gchigoo-skeg-*.tgz | head -n1)"
+          TARBALL="$(ls veritack-pi-veritack-*.tgz | head -n1)"
           test -n "$TARBALL"
           sha256sum "$TARBALL" > SHA256SUMS.txt
           npm sbom --sbom-format spdx > sbom.spdx.json
@@ -48,8 +48,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          TARBALL="$(ls gchigoo-skeg-*.tgz | head -n1)"
-          NOTES="Skeg ${GITHUB_REF_NAME}
+          TARBALL="$(ls veritack-pi-veritack-*.tgz | head -n1)"
+          NOTES="Veritack ${GITHUB_REF_NAME}
 
           Artifacts: npm tarball, SHA-256 checksums, SPDX SBOM.
           Install: \`npm i -g ${TARBALL}\` or wait for npm publish."

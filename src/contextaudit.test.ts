@@ -7,15 +7,15 @@ import { buildContextAuditPayload } from './contextaudit.ts';
 
 describe('AuditDefaultDigest', () => {
   it('omits content by default', () => {
-    const p = buildContextAuditPayload('hello skeg', 'abc123', undefined);
+    const p = buildContextAuditPayload('hello veritack', 'abc123', undefined);
     assert.equal(p.hash, 'abc123');
     assert.ok(p.tokens > 0);
     assert.equal('content' in p, false);
   });
 
-  it('includes content when SKEG_CONTEXT_AUDIT=full', () => {
-    const p = buildContextAuditPayload('hello skeg', 'abc123', 'full');
-    assert.equal(p.content, 'hello skeg');
+  it('includes content when VERITACK_CONTEXT_AUDIT=full', () => {
+    const p = buildContextAuditPayload('hello veritack', 'abc123', 'full');
+    assert.equal(p.content, 'hello veritack');
     assert.equal(p.hash, 'abc123');
   });
 });

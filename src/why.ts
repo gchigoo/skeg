@@ -1,5 +1,5 @@
 /**
- * /skeg status --why：可验证解释（block / gate / required / stale / drift）。
+ * /veritack status --why：可验证解释（block / gate / required / stale / drift）。
  */
 import { evaluateClosure, currentWaiver } from './closure.ts';
 import {
@@ -8,7 +8,7 @@ import {
 } from './contract.ts';
 import { currentChecks } from './run.ts';
 import { providersConfigHash } from './trust.ts';
-import type { RunState, SkegConfig } from './types.ts';
+import type { RunState, VeritackConfig } from './types.ts';
 
 /**
  * 构建 why 报告文本。
@@ -18,10 +18,10 @@ import type { RunState, SkegConfig } from './types.ts';
  */
 export function buildWhyReport(
   run: RunState | null,
-  config: SkegConfig,
+  config: VeritackConfig,
 ): string {
   if (!run) {
-    return 'No active Skeg run. Use /skeg start <intent> to start.';
+    return 'No active Veritack run. Use /veritack start <intent> to start.';
   }
 
   const lines: string[] = ['# Why', ''];
@@ -111,7 +111,7 @@ function sectionGates(run: RunState): string[] {
  * @param config config
  * @returns 行
  */
-function sectionRequired(run: RunState, config: SkegConfig): string[] {
+function sectionRequired(run: RunState, config: VeritackConfig): string[] {
   const lines = ['## Required checks'];
   const evaluation = evaluateClosure(run, config);
   const fromContract = new Set(requiredChecksFromContract(run, config));
@@ -196,7 +196,7 @@ function sectionWaivers(run: RunState): string[] {
  * @param config config
  * @returns 行
  */
-function sectionDrift(run: RunState, config: SkegConfig): string[] {
+function sectionDrift(run: RunState, config: VeritackConfig): string[] {
   const lines = ['## Contract drift'];
   if (!run.contract) {
     lines.push('No frozen contract (legacy session); live config used.');

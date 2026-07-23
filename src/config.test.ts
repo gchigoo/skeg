@@ -10,11 +10,11 @@ import { loadConfigWithDiagnostics } from './config.ts';
 
 describe('parseCommands (via loadConfigWithDiagnostics)', () => {
   it('rejects plain substring matchers with error and ignores them', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-cfg-match-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-cfg-match-'));
     try {
-      mkdirSync(join(cwd, '.skeg'), { recursive: true });
+      mkdirSync(join(cwd, '.veritack'), { recursive: true });
       writeFileSync(
-        join(cwd, '.skeg/config.json'),
+        join(cwd, '.veritack/config.json'),
         JSON.stringify({
           checks: {
             commands: {
@@ -49,11 +49,11 @@ describe('parseCommands (via loadConfigWithDiagnostics)', () => {
 
 describe('controlPlane policy', () => {
   it('ignores user override of policies.controlPlane', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-cfg-cp-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-cfg-cp-'));
     try {
-      mkdirSync(join(cwd, '.skeg'), { recursive: true });
+      mkdirSync(join(cwd, '.veritack'), { recursive: true });
       writeFileSync(
-        join(cwd, '.skeg/config.json'),
+        join(cwd, '.veritack/config.json'),
         JSON.stringify({
           policies: {
             controlPlane: { risk: 'lean', action: 'ignore' },
@@ -78,11 +78,11 @@ describe('controlPlane policy', () => {
 
 describe('riskTriggers (via loadConfigWithDiagnostics)', () => {
   it('warns and does not map riskTriggers in v1.0', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-cfg-rt-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-cfg-rt-'));
     try {
-      mkdirSync(join(cwd, '.skeg'), { recursive: true });
+      mkdirSync(join(cwd, '.veritack'), { recursive: true });
       writeFileSync(
-        join(cwd, '.skeg/config.json'),
+        join(cwd, '.veritack/config.json'),
         JSON.stringify({
           riskTriggers: { databaseMigration: 'lean' },
           policies: {

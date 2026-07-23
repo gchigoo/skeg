@@ -28,7 +28,7 @@ describe('isBashFileWrite', () => {
     assert.equal(isBashFileWrite("sed -i 's/a/b/' src/util.js"), true);
     assert.equal(isBashFileWrite('cp a.md b.md'), true);
     assert.equal(isBashFileWrite('mv old.ts new.ts'), true);
-    assert.equal(isBashFileWrite('touch .skeg/records/.keep'), true);
+    assert.equal(isBashFileWrite('touch .veritack/records/.keep'), true);
   });
 
   it('ignores read-only commands', () => {
@@ -90,7 +90,7 @@ describe('toWorkspacePath', () => {
 
 describe('authorizeMutationPaths', () => {
   it('allows workspace-relative writes', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-auth-ok-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-auth-ok-'));
     try {
       mkdirSync(join(cwd, 'src'), { recursive: true });
       const r = authorizeMutationPaths(cwd, ['src/a.ts', './b.ts']);
@@ -102,7 +102,7 @@ describe('authorizeMutationPaths', () => {
   });
 
   it('blocks outside workspace and .git writes', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-auth-block-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-auth-block-'));
     try {
       mkdirSync(join(cwd, '.git'), { recursive: true });
       mkdirSync(join(cwd, 'src'), { recursive: true });
@@ -123,7 +123,7 @@ describe('authorizeMutationPaths', () => {
 
 describe('SymlinkBoundaryEscape', () => {
   it('blocks symlink to outside workspace', { skip: process.platform === 'win32' ? 'posix symlink' : false }, () => {
-    const root = mkdtempSync(join(tmpdir(), 'skeg-sym-'));
+    const root = mkdtempSync(join(tmpdir(), 'veritack-sym-'));
     const cwd = join(root, 'ws');
     const outside = join(root, 'outside');
     try {
@@ -140,7 +140,7 @@ describe('SymlinkBoundaryEscape', () => {
   });
 
   it('blocks symlink to .git', { skip: process.platform === 'win32' ? 'posix symlink' : false }, () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-symgit-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-symgit-'));
     try {
       mkdirSync(join(cwd, '.git'), { recursive: true });
       writeFileSync(join(cwd, '.git', 'config'), 'x');
@@ -154,7 +154,7 @@ describe('SymlinkBoundaryEscape', () => {
   });
 
   it('blocks Windows junction to outside', { skip: process.platform !== 'win32' ? 'windows junction' : false }, () => {
-    const root = mkdtempSync(join(tmpdir(), 'skeg-junc-'));
+    const root = mkdtempSync(join(tmpdir(), 'veritack-junc-'));
     const cwd = join(root, 'ws');
     const outside = join(root, 'outside');
     try {
@@ -171,7 +171,7 @@ describe('SymlinkBoundaryEscape', () => {
   });
 
   it('blocks new file under symlink parent pointing outside', { skip: process.platform === 'win32' ? 'posix symlink' : false }, () => {
-    const root = mkdtempSync(join(tmpdir(), 'skeg-symnew-'));
+    const root = mkdtempSync(join(tmpdir(), 'veritack-symnew-'));
     const cwd = join(root, 'ws');
     const outside = join(root, 'outside');
     try {

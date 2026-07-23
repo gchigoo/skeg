@@ -28,18 +28,18 @@ import {
 } from './trust.ts';
 
 describe('classifyProviderSpec', () => {
-  it('allows .skeg/providers relative paths', () => {
-    const ok = classifyProviderSpec('.skeg/providers/foo.mjs');
+  it('allows .veritack/providers relative paths', () => {
+    const ok = classifyProviderSpec('.veritack/providers/foo.mjs');
     assert.equal(ok.ok, true);
     if (ok.ok) {
       assert.equal(ok.kind, 'workspace-file');
-      assert.equal(ok.relative, '.skeg/providers/foo.mjs');
+      assert.equal(ok.relative, '.veritack/providers/foo.mjs');
     }
   });
 
   it('allows bare and scoped package names', () => {
-    assert.equal(classifyProviderSpec('skeg-postgres').ok, true);
-    assert.equal(classifyProviderSpec('@acme/skeg-policy').ok, true);
+    assert.equal(classifyProviderSpec('veritack-postgres').ok, true);
+    assert.equal(classifyProviderSpec('@acme/veritack-policy').ok, true);
   });
 
   it('rejects absolute, parent, and URL specs', () => {
@@ -57,27 +57,27 @@ describe('trustProvider', () => {
   let prevUserDir: string | undefined;
 
   beforeEach(() => {
-    userDir = mkdtempSync(join(tmpdir(), 'skeg-trust-user-'));
-    cwd = mkdtempSync(join(tmpdir(), 'skeg-trust-cwd-'));
-    prevUserDir = process.env.SKEG_USER_DIR;
-    process.env.SKEG_USER_DIR = userDir;
-    mkdirSync(join(cwd, '.skeg', 'providers'), { recursive: true });
+    userDir = mkdtempSync(join(tmpdir(), 'veritack-trust-user-'));
+    cwd = mkdtempSync(join(tmpdir(), 'veritack-trust-cwd-'));
+    prevUserDir = process.env.VERITACK_USER_DIR;
+    process.env.VERITACK_USER_DIR = userDir;
+    mkdirSync(join(cwd, '.veritack', 'providers'), { recursive: true });
     writeFileSync(
-      join(cwd, '.skeg', 'providers', 'special.mjs'),
+      join(cwd, '.veritack', 'providers', 'special.mjs'),
       'export default { checks: { classify() { return null; } } };\n',
       'utf8',
     );
   });
 
   afterEach(() => {
-    if (prevUserDir === undefined) delete process.env.SKEG_USER_DIR;
-    else process.env.SKEG_USER_DIR = prevUserDir;
+    if (prevUserDir === undefined) delete process.env.VERITACK_USER_DIR;
+    else process.env.VERITACK_USER_DIR = prevUserDir;
     rmSync(userDir, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
   });
 
   it('requires explicit trust and binds content hash', () => {
-    const spec = '.skeg/providers/special.mjs';
+    const spec = '.veritack/providers/special.mjs';
     const before = checkProviderTrust(cwd, spec);
     assert.equal(before.trusted, false);
 
@@ -87,7 +87,7 @@ describe('trustProvider', () => {
     assert.equal(after.trusted, true);
 
     writeFileSync(
-      join(cwd, '.skeg', 'providers', 'special.mjs'),
+      join(cwd, '.veritack', 'providers', 'special.mjs'),
       'export default { checks: { classify() { return { kind: "command", name: "x" }; } } };\n',
       'utf8',
     );
@@ -99,20 +99,20 @@ describe('trustProvider', () => {
   });
 
   it('untrust removes the record', () => {
-    const spec = '.skeg/providers/special.mjs';
+    const spec = '.veritack/providers/special.mjs';
     assert.equal(trustProvider(cwd, spec).ok, true);
     assert.equal(untrustProvider(cwd, spec).ok, true);
     assert.equal(checkProviderTrust(cwd, spec).trusted, false);
   });
 
   it('hashes workspace provider content', () => {
-    const hashed = hashProviderContent(cwd, '.skeg/providers/special.mjs');
+    const hashed = hashProviderContent(cwd, '.veritack/providers/special.mjs');
     assert.equal(hashed.ok, true);
     if (hashed.ok) assert.match(hashed.hash, /^[a-f0-9]{64}$/);
   });
 
   it('rejects relative runtime imports (ProviderHelperHashBypass)', () => {
-    const multi = join(cwd, '.skeg', 'providers', 'multi.mjs');
+    const multi = join(cwd, '.veritack', 'providers', 'multi.mjs');
     writeFileSync(
       multi,
       'import { x } from "./helper.mjs";\nexport default { apiVersion: 1, id: "m", capabilities: [] };\n',
@@ -121,12 +121,12 @@ describe('trustProvider', () => {
     assert.ok(findRelativeRuntimeImport(readFileSync(multi, 'utf8')));
     const self = assertSelfContainedProvider(multi);
     assert.equal(self.ok, false);
-    const trusted = trustProvider(cwd, '.skeg/providers/multi.mjs');
+    const trusted = trustProvider(cwd, '.veritack/providers/multi.mjs');
     assert.equal(trusted.ok, false);
   });
 
   it('atomic write preserves trust store content', () => {
-    const spec = '.skeg/providers/special.mjs';
+    const spec = '.veritack/providers/special.mjs';
     assert.equal(trustProvider(cwd, spec).ok, true);
     const store = loadTrustStore();
     assert.equal(store.providers.length, 1);
@@ -151,7 +151,7 @@ describe('trustProvider', () => {
     assert.ok(backups.length >= 1);
     // 损坏后不得静默信任任何 provider
     assert.equal(
-      checkProviderTrust(cwd, '.skeg/providers/special.mjs').trusted,
+      checkProviderTrust(cwd, '.veritack/providers/special.mjs').trusted,
       false,
     );
   });

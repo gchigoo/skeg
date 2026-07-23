@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 分发端到端：npm pack tarball → 干净沙箱安装 Provider → 装载 skeg →
+ * 分发端到端：npm pack tarball → 干净沙箱安装 Provider → 装载 veritack →
  * trust → 第三方 policy/check → finish closure。
  *
  * 用法：node dogfood/dist-e2e.mjs
@@ -25,11 +25,8 @@ import { npmExecArgs } from './npm-cli.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..');
-const PROVIDER_NAMES = [
-  'skeg-provider-postgres',
-  'skeg-provider-monorepo',
-  'skeg-provider-rust',
-];
+/** providers/ 下目录名（包名为 @veritack/<name>） */
+const PROVIDER_NAMES = ['postgres', 'monorepo', 'rust'];
 
 /** @type {string[]} */
 const failures = [];
@@ -67,7 +64,7 @@ function run(cwd, args, opts = {}) {
 function runNpm(cwd, npmArgs) {
   const { file, args, shell } = npmExecArgs(npmArgs);
   return run(cwd, [file, ...args], {
-    env: { ...process.env, npm_config_cache: join(tmpdir(), 'skeg-npm-cache') },
+    env: { ...process.env, npm_config_cache: join(tmpdir(), 'veritack-npm-cache') },
     shell: Boolean(shell),
   });
 }
@@ -100,7 +97,7 @@ function npmPack(cwd) {
  */
 function extractPackage(tarball, dest) {
   mkdirSync(dest, { recursive: true });
-  const staging = mkdtempSync(join(tmpdir(), 'skeg-extract-'));
+  const staging = mkdtempSync(join(tmpdir(), 'veritack-extract-'));
   try {
     run(staging, ['tar', '-xzf', tarball, '-C', staging]);
     const pkgDir = join(staging, 'package');
@@ -112,27 +109,27 @@ function extractPackage(tarball, dest) {
 }
 
 async function main() {
-  const work = mkdtempSync(join(tmpdir(), 'skeg-dist-e2e-'));
+  const work = mkdtempSync(join(tmpdir(), 'veritack-dist-e2e-'));
   const packs = join(work, 'packs');
   const sandbox = join(work, 'sandbox');
-  const skegExtract = join(work, 'skeg-pkg');
+  const pkgExtract = join(work, 'veritack-pkg');
   const userDir = join(work, 'user');
   mkdirSync(packs, { recursive: true });
   mkdirSync(sandbox, { recursive: true });
   mkdirSync(userDir, { recursive: true });
 
-  const prevUserDir = process.env.SKEG_USER_DIR;
-  process.env.SKEG_USER_DIR = userDir;
+  const prevUserDir = process.env.VERITACK_USER_DIR;
+  process.env.VERITACK_USER_DIR = userDir;
 
   try {
     console.log(`Work: ${work}`);
 
     // --- pack ---
-    const skegTarball = npmPack(REPO);
-    const skegPackCopy = join(packs, skegTarball.split(/[/\\]/).pop());
-    cpSync(skegTarball, skegPackCopy);
-    rmSync(skegTarball);
-    check('npm pack skeg', existsSync(skegPackCopy), skegPackCopy);
+    const pkgTarball = npmPack(REPO);
+    const pkgPackCopy = join(packs, pkgTarball.split(/[/\\]/).pop());
+    cpSync(pkgTarball, pkgPackCopy);
+    rmSync(pkgTarball);
+    check('npm pack veritack', existsSync(pkgPackCopy), pkgPackCopy);
 
     /** @type {string[]} */
     const providerTarballs = [];
@@ -146,8 +143,8 @@ async function main() {
       check(`npm pack ${name}`, existsSync(copy), copy);
     }
 
-    // --- extract skeg (outside node_modules; strip-types friendly) ---
-    extractPackage(skegPackCopy, skegExtract);
+    // --- extract veritack (outside node_modules; strip-types friendly) ---
+    extractPackage(pkgPackCopy, pkgExtract);
     const requiredFiles = [
       'extensions/core.ts',
       'src/provider-api.ts',
@@ -159,17 +156,17 @@ async function main() {
       'package.json',
     ];
     for (const f of requiredFiles) {
-      check(`skeg tarball contains ${f}`, existsSync(join(skegExtract, f)));
+      check(`veritack tarball contains ${f}`, existsSync(join(pkgExtract, f)));
     }
 
-    // 干净沙箱：正式入口 import('@gchigoo/skeg/provider-api')
+    // 干净沙箱：正式入口 import('@veritack/pi-veritack/provider-api')
     const apiSandbox = join(work, 'api-import');
     mkdirSync(apiSandbox, { recursive: true });
     writeFileSync(
       join(apiSandbox, 'package.json'),
       JSON.stringify(
         {
-          name: 'skeg-api-import',
+          name: 'veritack-api-import',
           version: '0.0.0',
           private: true,
           type: 'module',
@@ -179,16 +176,16 @@ async function main() {
       ),
       'utf8',
     );
-    runNpm(apiSandbox, ['install', skegPackCopy]);
+    runNpm(apiSandbox, ['install', pkgPackCopy]);
     const apiMod = await import(
       pathToFileURL(
-        join(apiSandbox, 'node_modules', '@gchigoo', 'skeg', 'dist', 'provider-api.js'),
+        join(apiSandbox, 'node_modules', '@veritack', 'pi-veritack', 'dist', 'provider-api.js'),
       ).href
     );
     check(
       'DistEntryImportable defineProvider',
       typeof apiMod.defineProvider === 'function' &&
-        apiMod.SKEG_PROVIDER_API_VERSION === 1,
+        apiMod.VERITACK_PROVIDER_API_VERSION === 1,
     );
 
     // --- sandbox fixture ---
@@ -196,7 +193,7 @@ async function main() {
       join(sandbox, 'package.json'),
       JSON.stringify(
         {
-          name: 'skeg-dist-sandbox',
+          name: 'veritack-dist-sandbox',
           version: '0.0.0',
           private: true,
           type: 'module',
@@ -209,9 +206,9 @@ async function main() {
     mkdirSync(join(sandbox, 'migrations'), { recursive: true });
     mkdirSync(join(sandbox, 'src'), { recursive: true });
     writeFileSync(join(sandbox, 'src/app.ts'), 'export const x = 1;\n', 'utf8');
-    mkdirSync(join(sandbox, '.skeg'), { recursive: true });
+    mkdirSync(join(sandbox, '.veritack'), { recursive: true });
     writeFileSync(
-      join(sandbox, '.skeg/config.json'),
+      join(sandbox, '.veritack/config.json'),
       JSON.stringify(
         {
           checks: {
@@ -221,19 +218,19 @@ async function main() {
           providers: [
             {
               id: 'postgres',
-              spec: 'skeg-provider-postgres',
+              spec: '@veritack/postgres',
               required: true,
               priority: 10,
             },
             {
               id: 'monorepo',
-              spec: 'skeg-provider-monorepo',
+              spec: '@veritack/monorepo',
               required: false,
               priority: 5,
             },
             {
               id: 'rust',
-              spec: 'skeg-provider-rust',
+              spec: '@veritack/rust',
               required: false,
               priority: 5,
             },
@@ -246,8 +243,8 @@ async function main() {
     );
 
     run(sandbox, ['git', 'init']);
-    run(sandbox, ['git', 'config', 'user.email', 'skeg@dist.local']);
-    run(sandbox, ['git', 'config', 'user.name', 'skeg-dist']);
+    run(sandbox, ['git', 'config', 'user.email', 'veritack@dist.local']);
+    run(sandbox, ['git', 'config', 'user.name', 'veritack-dist']);
     run(sandbox, ['git', 'add', '-A']);
     run(sandbox, ['git', 'commit', '-m', 'init']);
 
@@ -259,52 +256,54 @@ async function main() {
       ...providerTarballs,
     ]);
     for (const name of PROVIDER_NAMES) {
+      const pkg = `@veritack/${name}`;
       check(
-        `installed ${name}`,
-        existsSync(join(sandbox, 'node_modules', name, 'index.mjs')),
+        `installed ${pkg}`,
+        existsSync(join(sandbox, 'node_modules', '@veritack', name, 'index.mjs')),
       );
     }
 
     // peer 依赖：从源仓库 node_modules 链接，模拟干净环境中已安装 Pi
     const peerName = '@earendil-works/pi-coding-agent';
     const peerSrc = join(REPO, 'node_modules', peerName);
-    const peerDest = join(skegExtract, 'node_modules', peerName);
+    const peerDest = join(pkgExtract, 'node_modules', peerName);
     if (existsSync(peerSrc)) {
       mkdirSync(dirname(peerDest), { recursive: true });
       cpSync(peerSrc, peerDest, { recursive: true });
     }
 
-    // --- load skeg modules from extracted tarball ---
-    const skegImport = (rel) =>
-      import(pathToFileURL(join(skegExtract, rel)).href);
+    // --- load veritack modules from extracted tarball ---
+    const pkgImport = (rel) =>
+      import(pathToFileURL(join(pkgExtract, rel)).href);
 
     // 证明 extensions/core.ts 可从 tarball 装载（不执行完整 Pi 注册）
-    const coreMod = await skegImport('extensions/core.ts');
+    const coreMod = await pkgImport('extensions/core.ts');
     check(
       'load extensions/core.ts from tarball',
       typeof coreMod.default === 'function',
       typeof coreMod.default,
     );
 
-    const { trustProvider } = await skegImport('src/trust.ts');
+    const { trustProvider } = await pkgImport('src/trust.ts');
     const {
       loadProviders,
       mergePolicyHits,
       classifyWithProviders,
-    } = await skegImport('src/providers.ts');
-    const { loadConfig } = await skegImport('src/config.ts');
-    const { classifyCheckCommand } = await skegImport('src/checks.ts');
+    } = await pkgImport('src/providers.ts');
+    const { loadConfig } = await pkgImport('src/config.ts');
+    const { classifyCheckCommand } = await pkgImport('src/checks.ts');
     const { createRun, upsertCheck, openGate, resolveGate, formatStatus } =
-      await skegImport('src/run.ts');
-    const { evaluateClosure } = await skegImport('src/closure.ts');
-    const { scanToolCall } = await skegImport('src/risk.ts');
+      await pkgImport('src/run.ts');
+    const { evaluateClosure } = await pkgImport('src/closure.ts');
+    const { scanToolCall } = await pkgImport('src/risk.ts');
 
     const config = loadConfig(sandbox);
 
     // --- trust package specs ---
     for (const name of PROVIDER_NAMES) {
-      const result = trustProvider(sandbox, name);
-      check(`trust ${name}`, result.ok === true, result.message || '');
+      const pkg = `@veritack/${name}`;
+      const result = trustProvider(sandbox, pkg);
+      check(`trust ${pkg}`, result.ok === true, result.message || '');
     }
 
     const loaded = await loadProviders(sandbox, config);
@@ -479,8 +478,8 @@ async function main() {
       err instanceof Error ? err.stack || err.message : String(err),
     );
   } finally {
-    if (prevUserDir === undefined) delete process.env.SKEG_USER_DIR;
-    else process.env.SKEG_USER_DIR = prevUserDir;
+    if (prevUserDir === undefined) delete process.env.VERITACK_USER_DIR;
+    else process.env.VERITACK_USER_DIR = prevUserDir;
     rmSync(work, { recursive: true, force: true });
   }
 

@@ -1,5 +1,5 @@
 /**
- * Skeg slash 命令处理（宿主无关编排，经 dispatch 回调写状态）。
+ * Veritack slash 命令处理（宿主无关编排，经 dispatch 回调写状态）。
  */
 import { captureBaseline } from './baseline.ts';
 import {
@@ -13,14 +13,14 @@ import {
   hasContractDrift,
 } from './contract.ts';
 import { buildDoctorReport } from './doctor.ts';
-import { initSkeg } from './init.ts';
+import { initVeritack } from './init.ts';
 import {
   formatProvidersStatus,
   type LoadedProviders,
 } from './providers.ts';
 import { createRecord, parseRecordArgs } from './record.ts';
 import { runProveChecks } from './prove.ts';
-import { sameState, type SkegEvent } from './reducer.ts';
+import { sameState, type VeritackEvent } from './reducer.ts';
 import { buildEvidenceReportV1 } from './report.ts';
 import {
   formatCloseReport,
@@ -31,7 +31,7 @@ import {
   parseWaiveReason,
 } from './run.ts';
 import { trustProvider, untrustProvider } from './trust.ts';
-import { RUN_ENTRY_TYPE, type RunState, type SkegConfig } from './types.ts';
+import { RUN_ENTRY_TYPE, type RunState, type VeritackConfig } from './types.ts';
 import { buildWhyReport } from './why.ts';
 
 export type CommandUi = {
@@ -46,9 +46,9 @@ export type CommandContext = {
 export type CommandDeps = {
   getRun: () => RunState | null;
   setRun: (run: RunState | null) => void;
-  getConfig: () => SkegConfig;
-  setConfig: (config: SkegConfig) => void;
-  dispatch: (event: SkegEvent) => Promise<void>;
+  getConfig: () => VeritackConfig;
+  setConfig: (config: VeritackConfig) => void;
+  dispatch: (event: VeritackEvent) => Promise<void>;
   appendEntry: (type: string, data: RunState) => void;
   clearSession: () => void;
   getEntries: () => Array<{
@@ -72,7 +72,7 @@ export function notifyDiagnostics(
   for (const d of diagnostics) {
     if (d.level === 'error' || d.level === 'warning') {
       ui.notify(
-        `Skeg config ${d.level}${d.path ? ` (${d.path})` : ''}: ${d.message}`,
+        `Veritack config ${d.level}${d.path ? ` (${d.path})` : ''}: ${d.message}`,
         d.level === 'error' ? 'error' : 'warning',
       );
     }
@@ -80,7 +80,7 @@ export function notifyDiagnostics(
 }
 
 /**
- * 处理 skeg 子命令。
+ * 处理 veritack 子命令。
  * @param name 子命令
  * @param args 参数
  * @param ctx 命令上下文
@@ -100,7 +100,7 @@ export async function handleCommand(
 
   switch (name) {
     case 'init': {
-      const result = initSkeg(ctx.cwd, hasCliFlag(args, '--force'));
+      const result = initVeritack(ctx.cwd, hasCliFlag(args, '--force'));
       reload();
       ctx.ui.notify(result.message, 'info');
       return;
@@ -128,7 +128,7 @@ export async function handleCommand(
         return;
       }
       if (!text) {
-        ctx.ui.notify('Usage: /run <intent> (or /skeg start <intent>)', 'error');
+        ctx.ui.notify('Usage: /run <intent> (or /veritack start <intent>)', 'error');
         return;
       }
       deps.clearSession();
@@ -269,7 +269,7 @@ export async function handleCommand(
       }
       if (sub) {
         ctx.ui.notify(
-          'Usage: /skeg providers | /skeg providers reload',
+          'Usage: /veritack providers | /veritack providers reload',
           'error',
         );
         return;
@@ -285,7 +285,7 @@ export async function handleCommand(
     case 'trust': {
       const spec = (args || '').trim();
       if (!spec) {
-        ctx.ui.notify('Usage: /skeg trust <provider-spec>', 'error');
+        ctx.ui.notify('Usage: /veritack trust <provider-spec>', 'error');
         return;
       }
       const result = trustProvider(ctx.cwd, spec);
@@ -299,7 +299,7 @@ export async function handleCommand(
     case 'untrust': {
       const spec = (args || '').trim();
       if (!spec) {
-        ctx.ui.notify('Usage: /skeg untrust <provider-spec>', 'error');
+        ctx.ui.notify('Usage: /veritack untrust <provider-spec>', 'error');
         return;
       }
       const result = untrustProvider(ctx.cwd, spec);
@@ -329,7 +329,7 @@ export async function handleCommand(
     }
     default:
       ctx.ui.notify(
-        `Unknown skeg command: ${name}. Try init|start|status|finish|record|providers|trust|untrust|doctor`,
+        `Unknown veritack command: ${name}. Try init|start|status|finish|record|providers|trust|untrust|doctor`,
         'error',
       );
   }

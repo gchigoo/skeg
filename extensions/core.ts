@@ -1,5 +1,5 @@
 /**
- * Skeg Pi 适配层：事件钩子 + 命令注册。
+ * Veritack Pi 适配层：事件钩子 + 命令注册。
  * 机制逻辑在 src/，本文件只做宿主桥接。
  */
 import { createHash } from 'node:crypto';
@@ -40,7 +40,7 @@ import {
   type ProviderRuntimeError,
 } from '../src/providers.ts';
 import { healChangedFilesFromGit, runProveChecks } from '../src/prove.ts';
-import { reduce, sameState, type SkegEvent } from '../src/reducer.ts';
+import { reduce, sameState, type VeritackEvent } from '../src/reducer.ts';
 import {
   actionFingerprint,
   gateAcknowledgementKey,
@@ -53,10 +53,10 @@ import { isOpenRun, latestRunFromEntries } from '../src/run.ts';
 import { toolResultText } from '../src/tooloutput.ts';
 import { buildRunContract } from '../src/contract.ts';
 import { providersConfigHash } from '../src/trust.ts';
-import { RUN_ENTRY_TYPE, type RunState, type SkegConfig } from '../src/types.ts';
+import { RUN_ENTRY_TYPE, type RunState, type VeritackConfig } from '../src/types.ts';
 
 /** 注入审计 entry（不进 LLM；供 smoke/host 观测 systemPrompt 注入）。 */
-const CONTEXT_ENTRY_TYPE = 'skeg/context';
+const CONTEXT_ENTRY_TYPE = 'veritack/context';
 
 /**
  * Pi package 入口。
@@ -64,7 +64,7 @@ const CONTEXT_ENTRY_TYPE = 'skeg/context';
  */
 export default function (pi: ExtensionAPI) {
   let run: RunState | null = null;
-  let config: SkegConfig = loadConfig(process.cwd());
+  let config: VeritackConfig = loadConfig(process.cwd());
   let providers: LoadedProviders = emptyProviders();
   /** 本 session 运行时失败后禁用的 provider spec */
   const disabledProviderSpecs = new Set<string>();
@@ -72,7 +72,7 @@ export default function (pi: ExtensionAPI) {
   const providerErrorWarned = new Set<string>();
   /** 本 session 是否已提示过 providers 配置变更需 reload */
   let providersReloadHinted = false;
-  /** 已落盘的注入内容 hash；变化时写 skeg/context 审计 entry */
+  /** 已落盘的注入内容 hash；变化时写 veritack/context 审计 entry */
   let lastInjectHash = '';
   let queue: Promise<void> = Promise.resolve();
 
@@ -95,7 +95,7 @@ export default function (pi: ExtensionAPI) {
     }
   };
 
-  const reloadProviders = async (cwd: string, next: SkegConfig) => {
+  const reloadProviders = async (cwd: string, next: VeritackConfig) => {
     providers = await loadProviders(cwd, next);
     disabledProviderSpecs.clear();
     providerErrorWarned.clear();
@@ -112,13 +112,13 @@ export default function (pi: ExtensionAPI) {
       if (providerErrorWarned.has(err.spec)) continue;
       providerErrorWarned.add(err.spec);
       ui.notify(
-        `Skeg provider ${err.spec} (${err.kind}) failed and was disabled for this session: ${err.message}`,
+        `Veritack provider ${err.spec} (${err.kind}) failed and was disabled for this session: ${err.message}`,
         'warning',
       );
     }
   };
 
-  const dispatch = (event: SkegEvent): Promise<void> => {
+  const dispatch = (event: VeritackEvent): Promise<void> => {
     // catch 防毒化：单次 reduce 异常后队列仍可继续
     queue = queue
       .then(() => {
@@ -132,7 +132,7 @@ export default function (pi: ExtensionAPI) {
         const message = err instanceof Error ? err.message : String(err);
         try {
           // ExtensionAPI 无全局 ui；异常吞掉以免毒化后续 dispatch
-          console.warn(`Skeg dispatch error (queue kept alive): ${message}`);
+          console.warn(`Veritack dispatch error (queue kept alive): ${message}`);
         } catch {
           /* ignore */
         }
@@ -146,7 +146,7 @@ export default function (pi: ExtensionAPI) {
       run = next;
     },
     getConfig: () => config,
-    setConfig: (next: SkegConfig) => {
+    setConfig: (next: VeritackConfig) => {
       config = next;
     },
     dispatch,
@@ -185,7 +185,7 @@ export default function (pi: ExtensionAPI) {
     if (nextHash !== providers.configHash && !providersReloadHinted) {
       providersReloadHinted = true;
       ctx.ui.notify(
-        'Skeg: providers config changed; run /skeg providers reload to apply.',
+        'Veritack: providers config changed; run /veritack providers reload to apply.',
         'warning',
       );
     }
@@ -199,9 +199,9 @@ export default function (pi: ExtensionAPI) {
     };
 
     const prompt = event.prompt ?? '';
-    if (!isOpenRun(run) && prompt.includes('<!-- skeg:run -->')) {
+    if (!isOpenRun(run) && prompt.includes('<!-- veritack:run -->')) {
       const intent = prompt
-        .replace(/<!--\s*skeg:run\s*-->/g, '')
+        .replace(/<!--\s*veritack:run\s*-->/g, '')
         .replace(/\s+/g, ' ')
         .trim()
         .slice(0, 240);
@@ -254,7 +254,7 @@ export default function (pi: ExtensionAPI) {
       if (auth.blocked.length > 0) {
         return {
           block: true,
-          reason: `Skeg blocked write outside workspace or .git: ${auth.blocked[0].path}`,
+          reason: `Veritack blocked write outside workspace or .git: ${auth.blocked[0].path}`,
         };
       }
       pendingMutations.set({
@@ -275,7 +275,7 @@ export default function (pi: ExtensionAPI) {
         if (auth.blocked.length > 0) {
           return {
             block: true,
-            reason: `Skeg blocked write outside workspace or .git: ${auth.blocked[0].path}`,
+            reason: `Veritack blocked write outside workspace or .git: ${auth.blocked[0].path}`,
           };
         }
         pendingMutations.set({
@@ -319,7 +319,7 @@ export default function (pi: ExtensionAPI) {
       pendingMutations.take(toolCallId);
       return {
         block: true,
-        reason: `Skeg blocked (provider-error): ${requiredFail}`,
+        reason: `Veritack blocked (provider-error): ${requiredFail}`,
       };
     }
     const gatedHits = merged.hits.filter((h) => requiresGate(h.trigger, config));
@@ -330,7 +330,7 @@ export default function (pi: ExtensionAPI) {
       pendingMutations.take(toolCallId);
       return {
         block: true,
-        reason: `Skeg blocked (${blocked.trigger}): ${blocked.reason}`,
+        reason: `Veritack blocked (${blocked.trigger}): ${blocked.reason}`,
       };
     }
 
@@ -354,9 +354,9 @@ export default function (pi: ExtensionAPI) {
       },
     });
 
-    const title = `Skeg gate: ${gatedHits.map((h) => h.trigger).join(', ')}`;
+    const title = `Veritack gate: ${gatedHits.map((h) => h.trigger).join(', ')}`;
     const body = [
-      'Skeg blocked this action.',
+      'Veritack blocked this action.',
       '',
       'Detected:',
       ...gatedHits.map((h) => `- ${h.trigger}: ${h.reason}`),
@@ -368,7 +368,7 @@ export default function (pi: ExtensionAPI) {
       pendingMutations.take(toolCallId);
       return {
         block: true,
-        reason: `Skeg blocked (${gatedHits[0].trigger}): ${gatedHits[0].reason}`,
+        reason: `Veritack blocked (${gatedHits[0].trigger}): ${gatedHits[0].reason}`,
       };
     }
 
@@ -378,7 +378,7 @@ export default function (pi: ExtensionAPI) {
       await dispatch({ type: 'GATE_RESOLVED', approved: false });
       return {
         block: true,
-        reason: `Skeg gate denied: ${gatedHits.map((h) => h.trigger).join(', ')}`,
+        reason: `Veritack gate denied: ${gatedHits.map((h) => h.trigger).join(', ')}`,
       };
     }
 
@@ -422,7 +422,7 @@ export default function (pi: ExtensionAPI) {
       // 仅外层（引号内）命中且无法识别 wrapper → 不计入证据
       if (outerClassified && !innerClassified && !wrapper) {
         ctx.ui.notify(
-          `Skeg did not count this as ${outerClassified.name} evidence: check matched inside quotes of an unparsed wrapper. Run the check as a standalone command.`,
+          `Veritack did not count this as ${outerClassified.name} evidence: check matched inside quotes of an unparsed wrapper. Run the check as a standalone command.`,
           'warning',
         );
       } else {
@@ -440,7 +440,7 @@ export default function (pi: ExtensionAPI) {
         if (classified.check) {
           if (inspectExitIntegrity(command) === 'masked') {
             ctx.ui.notify(
-              `Skeg did not count this as ${classified.check.name} evidence: the exit status may be masked by shell operators. Run the check as a standalone command.`,
+              `Veritack did not count this as ${classified.check.name} evidence: the exit status may be masked by shell operators. Run the check as a standalone command.`,
               'warning',
             );
           } else {
@@ -472,7 +472,7 @@ export default function (pi: ExtensionAPI) {
     if (!isOpenRun(run)) return;
     if (run!.pendingGate && !run!.pendingGate.resolved) {
       ctx.ui.notify(
-        `Skeg: pending gate (${run!.pendingGate.trigger}). Resolve or /finish --abandon.`,
+        `Veritack: pending gate (${run!.pendingGate.trigger}). Resolve or /finish --abandon.`,
         'warning',
       );
       return;
@@ -529,11 +529,11 @@ export default function (pi: ExtensionAPI) {
       );
       if (failed.length > 0) {
         ctx.ui.notify(
-          `Skeg prove: ${failed.map((c) => c.name).join(', ')} need attention.`,
+          `Veritack prove: ${failed.map((c) => c.name).join(', ')} need attention.`,
           'warning',
         );
       } else if (proved.notes.length > 0) {
-        ctx.ui.notify(`Skeg prove: ${proved.notes.join('; ')}`, 'info');
+        ctx.ui.notify(`Veritack prove: ${proved.notes.join('; ')}`, 'info');
       }
     }
   };
@@ -557,9 +557,9 @@ export default function (pi: ExtensionAPI) {
     if (run) pi.appendEntry(RUN_ENTRY_TYPE, run);
   });
 
-  pi.registerCommand('skeg', {
+  pi.registerCommand('veritack', {
     description:
-      'Skeg: init|start|status|finish|record|providers|trust|untrust|doctor',
+      'Veritack: init|start|status|finish|record|providers|trust|untrust|doctor',
     handler: async (args, ctx) => {
       commandDeps.getEntries = () => ctx.sessionManager.getEntries();
       commandDeps.reloadProviders = async () => {

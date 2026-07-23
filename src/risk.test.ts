@@ -15,11 +15,11 @@ import {
 } from './risk.ts';
 
 describe('controlPlane', () => {
-  it('flags .skeg/config.json and providers paths', () => {
-    assert.equal(isControlPlanePath('.skeg/config.json'), true);
-    assert.equal(isControlPlanePath('.skeg/providers/foo.mjs'), true);
+  it('flags .veritack/config.json and providers paths', () => {
+    assert.equal(isControlPlanePath('.veritack/config.json'), true);
+    assert.equal(isControlPlanePath('.veritack/providers/foo.mjs'), true);
     assert.equal(isControlPlanePath('src/a.ts'), false);
-    const hits = detectPathRisks('.skeg/config.json', DEFAULT_CONFIG);
+    const hits = detectPathRisks('.veritack/config.json', DEFAULT_CONFIG);
     assert.ok(hits.some((h) => h.trigger === 'controlPlane'));
     assert.equal(requiresGate('controlPlane', {
       ...DEFAULT_CONFIG,
@@ -33,13 +33,13 @@ describe('controlPlane', () => {
   it('scanToolCall flags write to control plane', () => {
     const hits = scanToolCall(
       'write',
-      { path: '.skeg/config.json' },
+      { path: '.veritack/config.json' },
       DEFAULT_CONFIG,
     );
     assert.ok(hits.some((h) => h.trigger === 'controlPlane'));
     const bashHits = scanToolCall(
       'bash',
-      { command: 'echo x > .skeg/config.json' },
+      { command: 'echo x > .veritack/config.json' },
       DEFAULT_CONFIG,
     );
     assert.ok(bashHits.some((h) => h.trigger === 'controlPlane'));

@@ -3,7 +3,7 @@ name: release-providers
 on:
   push:
     tags:
-      - 'skeg-provider-*-v*'
+      - 'provider-*-v*'
 
 permissions:
   contents: write
@@ -23,40 +23,71 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
-          # skeg-provider-<name>-v<semver>
-          if [[ ! "$TAG" =~ ^(skeg-provider-[a-z0-9-]+)-v(.+)$ ]]; then
-            echo "Tag must match skeg-provider-<name>-v<version>: $TAG"
+          # provider-<name>-v<semver>
+          if [[ ! "$TAG" =~ ^provider-([a-z0-9-]+)-v(.+)$ ]]; then
+            echo "Tag must match provider-<name>-v<version>: $TAG"
             exit 1
           fi
           NAME="${BASH_REMATCH[1]}"
           VER="${BASH_REMATCH[2]}"
           DIR="providers/${NAME}"
           test -d "$DIR"
-          PKG="$(node -p "require('./${DIR}/package.json').version")"
-          echo "tag=$TAG name=$NAME version=$VER package=$PKG"
-          test "$VER" = "$PKG"
+          PKG_NAME="$(node -p "require('./${DIR}/package.json').name")"
+          PKG_VER="$(node -p "require('./${DIR}/package.json').version")"
+          echo "tag=$TAG name=$NAME version=$VER package=$PKG_NAME@$PKG_VER"
+          test "$VER" = "$PKG_VER"
+          test "$PKG_NAME" = "@veritack/${NAME}"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "dir=$DIR" >> "$GITHUB_OUTPUT"
           echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "pkg_name=$PKG_NAME" >> "$GITHUB_OUTPUT"
 
       - run: npm ci
 
-      - name: Conformance
+      - name: Conformance + semantic cases
         run: |
           set -euo pipefail
-          node --experimental-strip-types scripts/provider-test.mjs \
-            "${{ steps.meta.outputs.dir }}/index.mjs"
+          DIR="${{ steps.meta.outputs.dir }}"
+          CASES="${DIR}/provider-cases.json"
+          if [ -f "$CASES" ]; then
+            node --experimental-strip-types scripts/provider-test.mjs \
+              "${DIR}/index.mjs" --cases "$CASES"
+          else
+            node --experimental-strip-types scripts/provider-test.mjs \
+              "${DIR}/index.mjs"
+          fi
 
       - name: Pack and checksums
         working-directory: ${{ steps.meta.outputs.dir }}
         run: |
           set -euo pipefail
           npm pack
-          TARBALL="$(ls ${{ steps.meta.outputs.name }}-*.tgz | head -n1)"
+          TARBALL="$(ls *.tgz | head -n1)"
           test -n "$TARBALL"
           sha256sum "$TARBALL" > SHA256SUMS.txt
           ls -la "$TARBALL" SHA256SUMS.txt
           echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
+
+      - name: Clean-directory tarball smoke
+        run: |
+          set -euo pipefail
+          DIR="${{ steps.meta.outputs.dir }}"
+          TARBALL="$(ls "${DIR}"/*.tgz | head -n1)"
+          SMOKE="$(mktemp -d)"
+          cd "$SMOKE"
+          npm init -y >/dev/null
+          npm pkg set type=module >/dev/null
+          npm install "$OLDPWD/$TARBALL"
+          node --input-type=module -e "
+            const name = process.env.PKG_NAME;
+            const mod = await import(name);
+            const p = mod.default ?? mod;
+            if (p.apiVersion !== 1) throw new Error('apiVersion');
+            if (!p.id) throw new Error('id');
+            console.log('smoke ok', p.id, p.capabilities);
+          "
+        env:
+          PKG_NAME: ${{ steps.meta.outputs.pkg_name }}
 
       - name: GitHub Release
         env:
@@ -66,13 +97,15 @@ jobs:
           DIR="${{ steps.meta.outputs.dir }}"
           NAME="${{ steps.meta.outputs.name }}"
           VER="${{ steps.meta.outputs.version }}"
-          TARBALL="${DIR}/${NAME}-${VER}.tgz"
+          PKG_NAME="${{ steps.meta.outputs.pkg_name }}"
+          TARBALL="$(ls "${DIR}"/*.tgz | head -n1)"
+          BASE="$(basename "$TARBALL")"
           test -f "$TARBALL"
-          NOTES="Independent Skeg provider ${NAME}@${VER}
+          NOTES="Independent Veritack provider ${PKG_NAME}@${VER}
 
-          Conformance: \`skeg-provider-test\` passed.
+          Conformance + semantic cases: \`veritack-provider-test\` passed.
           Artifacts: npm tarball + SHA-256 checksums.
-          Install: \`npm i ${TARBALL}\` then \`/skeg trust ${NAME}\`."
+          Install: \`npm i ./${BASE}\` then \`npm install @veritack/pi-veritack\` and \`/veritack trust ${PKG_NAME}\`."
           gh release create "$GITHUB_REF_NAME" \
             "$TARBALL" "${DIR}/SHA256SUMS.txt" \
             --title "$GITHUB_REF_NAME" \

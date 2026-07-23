@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "checks": {
+    "accept": [
+      { "command": "pnpm --filter app test", "name": "test" },
+      { "command": "pnpm --filter=app run test", "name": "test" },
+      { "command": "yarn --filter app test", "name": "test" },
+      { "command": "turbo run test --filter=app", "name": "test" },
+      { "command": "turbo test --filter=app", "name": "test" },
+      { "command": "nx test app", "name": "test" }
+    ],
+    "reject": [
+      "turbo run test --filter=app --dry-run",
+      "turbo run test --filter=app --dry=json",
+      "nx test app --help",
+      "pnpm --filter app test -- --listTests",
+      "pnpm --filter app test --help",
+      "echo pnpm --filter app test"
+    ]
+  }
+}

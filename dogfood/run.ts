@@ -1,5 +1,5 @@
 /**
- * Skeg dogfood harness：用宿主无关内核模拟场景并验收硬指标。
+ * Veritack dogfood harness：用宿主无关内核模拟场景并验收硬指标。
  *
  * 用法：node --experimental-strip-types dogfood/run.ts
  *
@@ -39,7 +39,7 @@ import {
   setPhase,
   upsertCheck,
 } from '../src/run.ts';
-import type { RunState, SkegConfig } from '../src/types.ts';
+import type { RunState, VeritackConfig } from '../src/types.ts';
 import { SCENARIOS, type Scenario, type SimulatedTool } from './scenarios.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -79,7 +79,7 @@ function toToolCall(tool: SimulatedTool): [string, Record<string, unknown>] {
 function applyBashCheck(
   run: RunState,
   tool: SimulatedTool,
-  config: SkegConfig,
+  config: VeritackConfig,
 ): RunState {
   if (tool.tool !== 'bash' || !tool.command) return run;
   const classified = classifyCheckCommand(tool.command, config);
@@ -102,7 +102,7 @@ function applyBashCheck(
  */
 function runScenario(scenario: Scenario): ScenarioResult {
   const failures: string[] = [];
-  const config: SkegConfig = {
+  const config: VeritackConfig = {
     ...DEFAULT_CONFIG,
     guidance: scenario.guidance ?? DEFAULT_CONFIG.guidance,
   };
@@ -116,7 +116,7 @@ function runScenario(scenario: Scenario): ScenarioResult {
     scenario.preexistingRecords !== undefined ||
     scenario.kind === 'record'
   ) {
-    tempCwd = mkdtempSync(join(tmpdir(), 'skeg-dogfood-'));
+    tempCwd = mkdtempSync(join(tmpdir(), 'veritack-dogfood-'));
     injectCwd = tempCwd;
     for (const rec of scenario.preexistingRecords ?? []) {
       createRecord(tempCwd, {
@@ -130,7 +130,7 @@ function runScenario(scenario: Scenario): ScenarioResult {
   try {
     const persist = (next: RunState) => {
       run = next;
-      entries.push({ type: 'custom', customType: 'skeg/run', data: next });
+      entries.push({ type: 'custom', customType: 'veritack/run', data: next });
     };
 
     const toolsBefore = scenario.toolsBeforeFirstEdit.length;
@@ -433,7 +433,7 @@ function main() {
   const pass = failed.length === 0 && aggregateFailures.length === 0;
 
   const lines = [
-    '# Skeg dogfood report',
+    '# Veritack dogfood report',
     '',
     `Date: ${new Date().toISOString()}`,
     `Result: ${pass ? 'PASS' : 'FAIL'}`,
@@ -472,10 +472,10 @@ function main() {
     '## Manual follow-up (Pi)',
     '',
     'Re-run 2 lean + 1 risk scenario inside a real Pi session to confirm UX:',
-    '- `/skeg init` → `/skeg start` → edit → `/skeg status` → `/skeg finish`',
+    '- `/veritack init` → `/veritack start` → edit → `/veritack status` → `/veritack finish`',
     '- risk edit must show gate confirm UI',
-    '- bash `pnpm test <file>` should appear in `/skeg status` Checks',
-    '- `/skeg record decision ...` then next agent turn should inject Records index',
+    '- bash `pnpm test <file>` should appear in `/veritack status` Checks',
+    '- `/veritack record decision ...` then next agent turn should inject Records index',
     '',
   );
 

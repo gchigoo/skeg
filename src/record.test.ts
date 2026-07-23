@@ -63,7 +63,7 @@ describe('normalizeType', () => {
 
 describe('createRecord', () => {
   it('writes lazy records dir with sequenced id', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-record-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-record-'));
     try {
       const run = createRun('fix avatar cache');
       const first = createRecord(cwd, {
@@ -79,7 +79,7 @@ describe('createRecord', () => {
 
       assert.equal(first.id, 'INC-001');
       assert.equal(second.id, 'INC-002');
-      assert.equal(first.relativePath, '.skeg/records/INC-001-cache-stampede.md');
+      assert.equal(first.relativePath, '.veritack/records/INC-001-cache-stampede.md');
 
       const text = readFileSync(join(cwd, first.relativePath), 'utf8');
       assert.match(text, /type: incident/);
@@ -93,7 +93,7 @@ describe('createRecord', () => {
 
 describe('listRecords', () => {
   it('returns empty when records dir missing', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-list-empty-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-list-empty-'));
     try {
       assert.deepEqual(listRecords(cwd), []);
     } finally {
@@ -102,9 +102,9 @@ describe('listRecords', () => {
   });
 
   it('sorts by createdAt desc and respects limit', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-list-sort-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-list-sort-'));
     try {
-      const dir = join(cwd, '.skeg', 'records');
+      const dir = join(cwd, '.veritack', 'records');
       mkdirSync(dir, { recursive: true });
       const write = (
         id: string,
@@ -148,7 +148,7 @@ describe('listRecords', () => {
   });
 
   it('unquotes escaped titles', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'skeg-list-quote-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'veritack-list-quote-'));
     try {
       createRecord(cwd, {
         type: 'decision',

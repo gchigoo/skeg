@@ -14,7 +14,7 @@ import {
 } from './providers.ts';
 import { selectRelevantRecords } from './record.ts';
 import { currentChecks, hasFreshPass } from './run.ts';
-import type { Phase, RunState, SkegConfig } from './types.ts';
+import type { Phase, RunState, VeritackConfig } from './types.ts';
 
 export type InjectOptions = {
   /** 第三方 RecordSelector；存在时优先于内置相关性选择 */
@@ -63,7 +63,7 @@ function phaseHint(phase: Phase, missing: string[]): string {
 }
 
 /**
- * 构建紧凑的 Skeg 运行上下文。
+ * 构建紧凑的 Veritack 运行上下文。
  * @param run 当前 run（可空）
  * @param config 配置
  * @param cwd 项目根
@@ -72,13 +72,13 @@ function phaseHint(phase: Phase, missing: string[]): string {
  */
 export function buildInjectContext(
   run: RunState | null,
-  config: SkegConfig,
+  config: VeritackConfig,
   cwd: string,
   options: InjectOptions = {},
 ): string {
   if (!run || run.status === 'done' || run.status === 'abandoned') {
     return [
-      'Skeg: idle. Use /run <intent> to start a run.',
+      'Veritack: idle. Use /run <intent> to start a run.',
       'Workflow: Orient → Change → Prove → Close.',
       'Default lean: no design artifacts, no subagents, targeted checks + diff.',
     ].join('\n');
@@ -96,7 +96,7 @@ export function buildInjectContext(
   const compact = config.guidance === 'compact';
 
   const lines = [
-    'Skeg run (compact):',
+    'Veritack run (compact):',
     `Intent: ${run.intent}`,
     `Phase: ${run.phase} | Revision: ${run.revision} | Risk: ${run.risk} (${run.riskSource}) | Status: ${run.status}`,
     `Changed: ${run.changedFiles.slice(0, 12).join(', ') || '(none)'}`,

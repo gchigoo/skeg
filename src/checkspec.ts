@@ -1,7 +1,7 @@
 /**
  * CheckSpec：可配置的验证检查定义与结构化 matcher。
  */
-import type { CheckMatcher, RiskLevel, SkegConfig } from './types.ts';
+import type { CheckMatcher, RiskLevel, VeritackConfig } from './types.ts';
 
 export type CheckSpec = {
   id: string;
@@ -16,7 +16,7 @@ export type CheckSpec = {
  * @param config 配置
  * @returns specs
  */
-export function listCheckSpecs(config: SkegConfig): CheckSpec[] {
+export function listCheckSpecs(config: VeritackConfig): CheckSpec[] {
   const commands = config.checks.commands ?? {};
   return Object.entries(commands).map(([id, match]) => ({
     id,
@@ -32,7 +32,7 @@ export function listCheckSpecs(config: SkegConfig): CheckSpec[] {
  * @returns check 名列表
  */
 export function requiredCheckNames(
-  config: SkegConfig,
+  config: VeritackConfig,
   risk: RiskLevel,
 ): string[] {
   return risk === 'guarded' ? config.checks.guarded : config.checks.default;

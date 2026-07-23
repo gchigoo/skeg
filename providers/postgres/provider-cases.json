@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "policies": [
+    {
+      "action": {
+        "toolName": "write",
+        "input": { "path": "migrations/001.sql", "content": "CREATE TABLE t(id int);" },
+        "paths": ["migrations/001.sql"]
+      },
+      "expectTriggers": ["databaseMigration"]
+    },
+    {
+      "action": {
+        "toolName": "read",
+        "input": { "path": "migrations/001.sql" },
+        "paths": ["migrations/001.sql"]
+      },
+      "expectTriggers": []
+    },
+    {
+      "action": {
+        "toolName": "grep",
+        "input": { "path": "migrations/001.sql" },
+        "paths": ["migrations/001.sql"]
+      },
+      "expectTriggers": []
+    },
+    {
+      "action": {
+        "toolName": "write",
+        "input": {
+          "path": "migrations/002.sql",
+          "content": "DROP TABLE users;"
+        },
+        "paths": ["migrations/002.sql"]
+      },
+      "expectTriggers": ["databaseMigration"]
+    },
+    {
+      "action": {
+        "toolName": "bash",
+        "input": { "command": "psql -c 'TRUNCATE accounts'" },
+        "paths": []
+      },
+      "expectTriggers": ["dangerousCommand"]
+    }
+  ]
+}

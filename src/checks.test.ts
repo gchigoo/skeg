@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { detectCommandsFromScripts } from './checkspec.ts';
 import { DEFAULT_CONFIG } from './config.ts';
 import { buildCommandCheck, classifyCheckCommand } from './checks.ts';
-import type { SkegConfig } from './types.ts';
+import type { VeritackConfig } from './types.ts';
 
 describe('classifyCheckCommand', () => {
   it('classifies bare test runners as test', () => {
@@ -92,7 +92,7 @@ describe('classifyCheckCommand', () => {
   });
 
   it('uses config.commands after targeted-test recognition', () => {
-    const config: SkegConfig = {
+    const config: VeritackConfig = {
       ...DEFAULT_CONFIG,
       checks: {
         ...DEFAULT_CONFIG.checks,
@@ -113,7 +113,7 @@ describe('classifyCheckCommand', () => {
   });
 
   it('rejects plain substring matchers at match time', () => {
-    const config: SkegConfig = {
+    const config: VeritackConfig = {
       ...DEFAULT_CONFIG,
       checks: {
         ...DEFAULT_CONFIG.checks,
@@ -133,7 +133,7 @@ describe('classifyCheckCommand', () => {
       build: 'vite build',
     });
     assert.deepEqual(detected.test, { kind: 'package-script', script: 'test' });
-    const config: SkegConfig = {
+    const config: VeritackConfig = {
       ...DEFAULT_CONFIG,
       checks: { ...DEFAULT_CONFIG.checks, commands: detected },
     };
@@ -155,7 +155,7 @@ describe('classifyCheckCommand', () => {
   });
 
   it('supports argv and regex CheckMatchers', () => {
-    const config: SkegConfig = {
+    const config: VeritackConfig = {
       ...DEFAULT_CONFIG,
       checks: {
         ...DEFAULT_CONFIG.checks,

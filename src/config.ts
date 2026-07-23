@@ -1,5 +1,5 @@
 /**
- * Skeg 配置加载与默认值（含诊断与 last-known-good）。
+ * Veritack 配置加载与默认值（含诊断与 last-known-good）。
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -7,14 +7,14 @@ import { isCheckMatcher } from './checkspec.ts';
 import {
   CONFIG_FILE,
   PROJECT_FILE,
-  SKEG_DIR,
+  VERITACK_DIR,
   type CheckMatcher,
   type ConfigDiagnostic,
   type ConfigLoadResult,
   type PolicyAction,
   type ProviderConfigEntry,
   type RiskLevel,
-  type SkegConfig,
+  type VeritackConfig,
   type TriggerId,
   type TriggerPolicy,
 } from './types.ts';
@@ -42,7 +42,7 @@ export const DEFAULT_POLICIES: Record<TriggerId, TriggerPolicy> = {
 };
 
 /** 默认配置，与 templates/config.json 保持一致。 */
-export const DEFAULT_CONFIG: SkegConfig = {
+export const DEFAULT_CONFIG: VeritackConfig = {
   defaultPolicy: 'lean',
   guidance: 'standard',
   protectedPaths: ['.env*', 'infra/prod/**'],
@@ -65,14 +65,14 @@ export const DEFAULT_CONFIG: SkegConfig = {
 };
 
 /** session 级 last-known-good，按 cwd 缓存 */
-const lastKnownGood = new Map<string, SkegConfig>();
+const lastKnownGood = new Map<string, VeritackConfig>();
 
 /**
  * 从项目根读取配置（兼容旧 API，忽略诊断）。
  * @param cwd 项目根目录
  * @returns 合并后的配置
  */
-export function loadConfig(cwd: string): SkegConfig {
+export function loadConfig(cwd: string): VeritackConfig {
   return loadConfigWithDiagnostics(cwd).config;
 }
 
@@ -82,7 +82,7 @@ export function loadConfig(cwd: string): SkegConfig {
  * @returns ConfigLoadResult
  */
 export function loadConfigWithDiagnostics(cwd: string): ConfigLoadResult {
-  const path = join(cwd, SKEG_DIR, CONFIG_FILE);
+  const path = join(cwd, VERITACK_DIR, CONFIG_FILE);
   if (!existsSync(path)) {
     const config = cloneConfig(DEFAULT_CONFIG);
     lastKnownGood.set(cwd, config);
@@ -131,7 +131,7 @@ export function loadConfigWithDiagnostics(cwd: string): ConfigLoadResult {
 function mergeConfig(
   raw: Record<string, unknown>,
   diagnostics: ConfigDiagnostic[],
-): SkegConfig {
+): VeritackConfig {
   const strArr = (key: string, fallback: string[]): string[] => {
     const v = raw[key];
     if (v === undefined) return fallback;
@@ -435,19 +435,19 @@ function fallbackWithWarning(
  * @param config 配置
  * @returns 深拷贝
  */
-function cloneConfig(config: SkegConfig): SkegConfig {
-  return JSON.parse(JSON.stringify(config)) as SkegConfig;
+function cloneConfig(config: VeritackConfig): VeritackConfig {
+  return JSON.parse(JSON.stringify(config)) as VeritackConfig;
 }
 
 /**
- * 判断 `.skeg` 是否已初始化。
+ * 判断 `.veritack` 是否已初始化。
  * @param cwd 项目根目录
  * @returns 是否存在 project.md 与 config.json
  */
 export function isInitialized(cwd: string): boolean {
   return (
-    existsSync(join(cwd, SKEG_DIR, PROJECT_FILE)) &&
-    existsSync(join(cwd, SKEG_DIR, CONFIG_FILE))
+    existsSync(join(cwd, VERITACK_DIR, PROJECT_FILE)) &&
+    existsSync(join(cwd, VERITACK_DIR, CONFIG_FILE))
   );
 }
 
@@ -458,7 +458,7 @@ export function isInitialized(cwd: string): boolean {
  * @returns 摘要文本，不存在则空串
  */
 export function loadProjectSummary(cwd: string, maxChars = 400): string {
-  const path = join(cwd, SKEG_DIR, PROJECT_FILE);
+  const path = join(cwd, VERITACK_DIR, PROJECT_FILE);
   if (!existsSync(path)) return '';
   const text = readFileSync(path, 'utf8').trim();
   if (text.length <= maxChars) return text;
@@ -472,7 +472,7 @@ export function loadProjectSummary(cwd: string, maxChars = 400): string {
  * @returns action
  */
 export function policyAction(
-  config: SkegConfig,
+  config: VeritackConfig,
   trigger: TriggerId,
 ): PolicyAction {
   return config.policies?.[trigger]?.action ?? DEFAULT_POLICIES[trigger].action;

@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 /**
  * 第三方 Provider conformance：manifest / schema / 确定性 / 异常 / 耗时。
+ * 可选 `--cases <file>` 跑 Provider 领域语义用例。
  * 主进程 spawn 子进程（--worker）执行检查，超时 10s 防止挂死。
- * 用法：npx skeg-provider-test ./path/to/provider.mjs
+ * 用法：
+ *   npx veritack-provider-test ./path/to/provider.mjs
+ *   npx veritack-provider-test ./path/to/provider.mjs --cases ./provider-cases.json
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { readFileSync, existsSync } from 'node:fs';
+import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { resolve } from 'node:path';
 
 const MAX_MS = 50;
 const WORKER_TIMEOUT_MS = 10_000;
@@ -30,10 +34,113 @@ function pass(msg) {
 }
 
 /**
+ * @param {string[]} args
+ * @returns {{ target: string | null; casesPath: string | null; worker: boolean }}
+ */
+function parseArgs(args) {
+  let worker = false;
+  /** @type {string | null} */
+  let target = null;
+  /** @type {string | null} */
+  let casesPath = null;
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i];
+    if (a === '--worker') {
+      worker = true;
+      continue;
+    }
+    if (a === '--cases') {
+      casesPath = args[i + 1] ?? null;
+      i += 1;
+      continue;
+    }
+    if (!a.startsWith('-') && !target) {
+      target = a;
+    }
+  }
+  return { target, casesPath, worker };
+}
+
+/**
+ * @param {unknown} provider
+ * @param {string} casesPath
+ * @param {unknown} DEFAULT_CONFIG
+ */
+function runCases(provider, casesPath, DEFAULT_CONFIG) {
+  if (!existsSync(casesPath)) {
+    fail(`cases file not found: ${casesPath}`);
+    return;
+  }
+  /** @type {any} */
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(casesPath, 'utf8'));
+  } catch (err) {
+    fail(`cases parse error: ${err instanceof Error ? err.message : err}`);
+    return;
+  }
+  if (manifest.schemaVersion !== 1) {
+    fail(`cases schemaVersion must be 1 (got ${String(manifest.schemaVersion)})`);
+    return;
+  }
+
+  const checks = manifest.checks;
+  if (checks && provider.checks?.classify) {
+    for (const item of checks.accept ?? []) {
+      const command = String(item.command ?? '');
+      const expectName = String(item.name ?? '');
+      const result = provider.checks.classify(command, DEFAULT_CONFIG);
+      if (!result || result.name !== expectName) {
+        fail(
+          `cases accept: ${JSON.stringify(command)} → expected name=${expectName}, got ${JSON.stringify(result)}`,
+        );
+      } else {
+        pass(`cases accept: ${command} → ${expectName}`);
+      }
+    }
+    for (const command of checks.reject ?? []) {
+      const result = provider.checks.classify(String(command), DEFAULT_CONFIG);
+      if (result != null) {
+        fail(
+          `cases reject: ${JSON.stringify(command)} → expected null, got ${JSON.stringify(result)}`,
+        );
+      } else {
+        pass(`cases reject: ${command}`);
+      }
+    }
+  } else if (checks) {
+    fail('cases.checks present but provider has no checks.classify');
+  }
+
+  const policies = manifest.policies;
+  if (Array.isArray(policies) && provider.policies?.inspect) {
+    for (const item of policies) {
+      const action = item.action ?? {};
+      const expect = Array.isArray(item.expectTriggers) ? item.expectTriggers : [];
+      const hits = provider.policies.inspect(action, DEFAULT_CONFIG) ?? [];
+      const got = [...new Set(hits.map((/** @type {any} */ h) => h.trigger))].sort();
+      const want = [...new Set(expect)].sort();
+      if (JSON.stringify(got) !== JSON.stringify(want)) {
+        fail(
+          `cases policy: ${action.toolName ?? '?'} ${JSON.stringify(action.paths ?? [])} → expected triggers ${JSON.stringify(want)}, got ${JSON.stringify(got)}`,
+        );
+      } else {
+        pass(
+          `cases policy: ${action.toolName ?? '?'} → [${want.join(', ')}]`,
+        );
+      }
+    }
+  } else if (policies) {
+    fail('cases.policies present but provider has no policies.inspect');
+  }
+}
+
+/**
  * 子进程：执行全部 conformance 检查。
  * @param {string} target Provider 路径
+ * @param {string | null} casesPath
  */
-async function runWorker(target) {
+async function runWorker(target, casesPath) {
   const abs = resolve(process.cwd(), target);
   const mod = await import(pathToFileURL(abs).href);
   const provider = mod.default ?? mod;
@@ -106,7 +213,7 @@ async function runWorker(target) {
   if (provider.checks?.classify) {
     const samples = [
       'pnpm test',
-      'just skeg-special-verify',
+      'just veritack-special-verify',
       'echo hello',
     ];
     for (const command of samples) {
@@ -173,6 +280,15 @@ async function runWorker(target) {
     }
   }
 
+  const resolvedCases =
+    casesPath ??
+    (existsSync(join(dirname(abs), 'provider-cases.json'))
+      ? join(dirname(abs), 'provider-cases.json')
+      : null);
+  if (resolvedCases) {
+    runCases(provider, resolvedCases, DEFAULT_CONFIG);
+  }
+
   if (process.exitCode) {
     console.error('\nProvider conformance failed.');
     process.exit(1);
@@ -182,20 +298,26 @@ async function runWorker(target) {
 
 /**
  * 主进程：spawn worker，透传 stdout/stderr，超时失败。
- * @param {string} target Provider 路径
+ * @param {string} target
+ * @param {string | null} casesPath
  */
-function runParent(target) {
-  const result = spawnSync(
-    process.execPath,
-    ['--experimental-strip-types', selfPath, '--worker', target],
-    {
-      cwd: process.cwd(),
-      encoding: 'utf8',
-      timeout: WORKER_TIMEOUT_MS,
-      maxBuffer: 4 * 1024 * 1024,
-      env: process.env,
-    },
-  );
+function runParent(target, casesPath) {
+  const workerArgs = [
+    '--experimental-strip-types',
+    selfPath,
+    '--worker',
+    target,
+  ];
+  if (casesPath) {
+    workerArgs.push('--cases', casesPath);
+  }
+  const result = spawnSync(process.execPath, workerArgs, {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    timeout: WORKER_TIMEOUT_MS,
+    maxBuffer: 4 * 1024 * 1024,
+    env: process.env,
+  });
 
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
@@ -218,23 +340,25 @@ function runParent(target) {
 }
 
 async function main() {
-  const args = process.argv.slice(2);
-  if (args[0] === '--worker') {
-    const target = args[1];
+  const { target, casesPath, worker } = parseArgs(process.argv.slice(2));
+  if (worker) {
     if (!target) {
-      console.error('Usage: skeg-provider-test --worker <provider-module>');
+      console.error(
+        'Usage: veritack-provider-test --worker <provider-module> [--cases <file>]',
+      );
       process.exit(2);
     }
-    await runWorker(target);
+    await runWorker(target, casesPath);
     return;
   }
 
-  const target = args[0];
   if (!target) {
-    console.error('Usage: skeg-provider-test <provider-module>');
+    console.error(
+      'Usage: veritack-provider-test <provider-module> [--cases <file>]',
+    );
     process.exit(2);
   }
-  runParent(target);
+  runParent(target, casesPath);
 }
 
 main().catch((err) => {

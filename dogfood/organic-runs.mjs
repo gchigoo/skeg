@@ -2,7 +2,7 @@
  * 有机（非固定 13 场景）真实 run：按项目跑一组自由意图，追加 FRICTION.md Organic 段。
  *
  * 用法：
- *   node dogfood/organic-runs.mjs --cwd . --name skeg
+ *   node dogfood/organic-runs.mjs --cwd . --name veritack
  *   node dogfood/organic-runs.mjs --cwd D:/Personal/ai-novels-factory --name ai-novels-factory
  */
 import { spawn } from 'node:child_process';
@@ -15,7 +15,7 @@ import {
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SKEG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const VERITACK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 
 /**
@@ -38,7 +38,7 @@ if (!cwdArg) {
 const HOST = resolve(cwdArg);
 const HOST_NAME = flagValue('--name') || basename(HOST);
 const TIMEOUT_MS = 180_000;
-const MODEL = process.env.SKEG_SMOKE_MODEL || 'deepseek/deepseek-v4-flash';
+const MODEL = process.env.VERITACK_SMOKE_MODEL || 'deepseek/deepseek-v4-flash';
 
 /** @typedef {{ id: string, intent: string, work: string, finish?: boolean, abandon?: boolean, recordAfter?: string }} OrganicTask */
 
@@ -48,7 +48,7 @@ const MODEL = process.env.SKEG_SMOKE_MODEL || 'deepseek/deepseek-v4-flash';
  * @returns {OrganicTask[]}
  */
 function tasksFor(name) {
-  if (name === 'skeg') {
+  if (name === 'veritack') {
     return [
       {
         id: 'org-01',
@@ -76,7 +76,7 @@ function tasksFor(name) {
       },
       {
         id: 'org-03',
-        intent: 'Prove skeg with targeted paths test after organic orient',
+        intent: 'Prove veritack with targeted paths test after organic orient',
         work: [
           'Do exactly this and stop:',
           '1. Run bash: node --experimental-strip-types --test src/run.test.ts',
@@ -92,7 +92,7 @@ function tasksFor(name) {
           'Do exactly this and stop:',
           '1. Write/overwrite dogfood/HOST_SCRATCH.md with:',
           '   # organic',
-          '   skeg-organic-v032',
+          '   veritack-organic-v032',
           '2. Run bash: node --experimental-strip-types --test src/paths.test.ts',
           '3. Reply DONE.',
         ].join('\n'),
@@ -114,7 +114,7 @@ function tasksFor(name) {
         work: [
           'Do exactly this and stop:',
           '1. Do not edit files.',
-          '2. Reply with whether an active run exists based on injected Skeg context.',
+          '2. Reply with whether an active run exists based on injected Veritack context.',
         ].join('\n'),
         finish: true,
       },
@@ -125,10 +125,10 @@ function tasksFor(name) {
   return [
     {
       id: 'org-01',
-      intent: `Fill .skeg/project.md with a short Stack/Commands sketch for ${name}`,
+      intent: `Fill .veritack/project.md with a short Stack/Commands sketch for ${name}`,
       work: [
         'Do exactly this and stop:',
-        '1. Write/overwrite .skeg/project.md with a short Project note covering Stack and Commands only (≤ 40 lines).',
+        '1. Write/overwrite .veritack/project.md with a short Project note covering Stack and Commands only (≤ 40 lines).',
         '2. Prefer real commands if README/package scripts are obvious; otherwise write placeholders.',
         '3. Reply DONE.',
       ].join('\n'),
@@ -136,10 +136,10 @@ function tasksFor(name) {
     },
     {
       id: 'org-02',
-      intent: `Map a minimal checks.commands stub into .skeg/config.json for ${name}`,
+      intent: `Map a minimal checks.commands stub into .veritack/config.json for ${name}`,
       work: [
         'Do exactly this and stop:',
-        '1. Edit .skeg/config.json: ensure checks.commands has at least one entry (e.g. "test": "npm test" or a plausible command).',
+        '1. Edit .veritack/config.json: ensure checks.commands has at least one entry (e.g. "test": "npm test" or a plausible command).',
         '2. Keep valid JSON. Reply DONE.',
       ].join('\n'),
       finish: true,
@@ -157,15 +157,15 @@ function tasksFor(name) {
     },
     {
       id: 'org-04',
-      intent: `Write an organic scratch note under .skeg-dogfood/ for ${name}`,
+      intent: `Write an organic scratch note under .veritack-dogfood/ for ${name}`,
       work: [
         'Do exactly this and stop:',
-        '1. Write/overwrite .skeg-dogfood/organic.md with two lines:',
+        '1. Write/overwrite .veritack-dogfood/organic.md with two lines:',
         '   # organic',
         `   ${name}-organic-v032`,
         '2. Reply DONE.',
       ].join('\n'),
-      recordAfter: `incident organic scratch for ${name} | .skeg-dogfood/organic.md marker for skeg dogfood`,
+      recordAfter: `incident organic scratch for ${name} | .veritack-dogfood/organic.md marker for veritack dogfood`,
       finish: true,
     },
     {
@@ -184,9 +184,9 @@ function tasksFor(name) {
       work: [
         'Do exactly this and stop:',
         '1. Edit .gitignore to append if missing:',
-        '   .skeg/',
+        '   .veritack/',
         '   .pi/',
-        '   .skeg-dogfood/',
+        '   .veritack-dogfood/',
         '2. Reply DONE.',
       ].join('\n'),
       finish: true,
@@ -209,8 +209,8 @@ function ensurePiPackage(root) {
     }
   }
   const packages = Array.isArray(settings.packages) ? settings.packages : [];
-  if (!packages.includes(SKEG_ROOT)) {
-    settings.packages = [...packages, SKEG_ROOT];
+  if (!packages.includes(VERITACK_ROOT)) {
+    settings.packages = [...packages, VERITACK_ROOT];
     writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
   }
 }
@@ -234,12 +234,12 @@ class PiRpc {
       ? MODEL.split('/')
       : ['deepseek', MODEL];
     const cliJs =
-      process.env.SKEG_PI_CLI ||
+      process.env.VERITACK_PI_CLI ||
       [
-        join(SKEG_ROOT, 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
+        join(VERITACK_ROOT, 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
         'D:/Software/nodejs/node_modules/@earendil-works/pi-coding-agent/dist/cli.js',
       ].find((p) => existsSync(p));
-    if (!cliJs) throw new Error('pi cli.js not found; set SKEG_PI_CLI');
+    if (!cliJs) throw new Error('pi cli.js not found; set VERITACK_PI_CLI');
 
     this.proc = spawn(
       process.execPath,
@@ -256,7 +256,7 @@ class PiRpc {
         '--model',
         modelId,
         '--name',
-        'skeg-organic',
+        'veritack-organic',
       ],
       { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env } },
     );
@@ -423,7 +423,7 @@ async function runTask(pi, task) {
  */
 function appendOrganic(results, hostName) {
   const date = new Date().toISOString().slice(0, 10);
-  const path = join(SKEG_ROOT, 'dogfood', 'FRICTION.md');
+  const path = join(VERITACK_ROOT, 'dogfood', 'FRICTION.md');
   const existing = existsSync(path) ? readFileSync(path, 'utf8') : '';
   const prior = (existing.match(/^## Organic \d+/gm) || []).length;
   const round = prior + 1;

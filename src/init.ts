@@ -1,5 +1,5 @@
 /**
- * `/init`：创建最小 `.skeg/` 目录。
+ * `/init`：创建最小 `.veritack/` 目录。
  */
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -8,7 +8,7 @@ import { detectCommandsFromScripts } from './checkspec.ts';
 import {
   CONFIG_FILE,
   PROJECT_FILE,
-  SKEG_DIR,
+  VERITACK_DIR,
   type CheckMatcher,
 } from './types.ts';
 
@@ -22,13 +22,13 @@ export type InitResult = {
 };
 
 /**
- * 初始化 `.skeg/project.md` 与 `.skeg/config.json`。
+ * 初始化 `.veritack/project.md` 与 `.veritack/config.json`。
  * @param cwd 项目根目录
  * @param force 是否覆盖已有文件
  * @returns 初始化结果
  */
-export function initSkeg(cwd: string, force = false): InitResult {
-  const dir = join(cwd, SKEG_DIR);
+export function initVeritack(cwd: string, force = false): InitResult {
+  const dir = join(cwd, VERITACK_DIR);
   mkdirSync(dir, { recursive: true });
 
   const created: string[] = [];
@@ -38,7 +38,7 @@ export function initSkeg(cwd: string, force = false): InitResult {
     const dest = join(dir, name);
     const src = join(TEMPLATES, name);
     if (existsSync(dest) && !force) {
-      skipped.push(`.skeg/${name}`);
+      skipped.push(`.veritack/${name}`);
       continue;
     }
     if (existsSync(src)) {
@@ -47,19 +47,19 @@ export function initSkeg(cwd: string, force = false): InitResult {
       // 模板缺失时写内置兜底
       writeFileSync(dest, name === CONFIG_FILE ? FALLBACK_CONFIG : FALLBACK_PROJECT, 'utf8');
     }
-    created.push(`.skeg/${name}`);
+    created.push(`.veritack/${name}`);
   }
 
   // 从 package.json scripts 探测 checks.commands
-  const detected = mergeDetectedCommands(cwd, force || created.includes(`.skeg/${CONFIG_FILE}`));
+  const detected = mergeDetectedCommands(cwd, force || created.includes(`.veritack/${CONFIG_FILE}`));
 
   const message = [
     created.length > 0 ? `Created: ${created.join(', ')}` : '',
     skipped.length > 0 ? `Skipped (exists): ${skipped.join(', ')}. Use /init --force to overwrite.` : '',
     detected ? `Detected check commands: ${Object.keys(detected).join(', ')}` : '',
     '',
-    'Next: fill authPaths / apiPaths in .skeg/config.json so weak triggers become deterministic.',
-    'Then: /skeg start <intent> (or /run <intent>)',
+    'Next: fill authPaths / apiPaths in .veritack/config.json so weak triggers become deterministic.',
+    'Then: /veritack start <intent> (or /run <intent>)',
   ]
     .filter(Boolean)
     .join('\n');
@@ -86,7 +86,7 @@ function mergeDetectedCommands(
     };
     const detected = detectCommandsFromScripts(pkg.scripts ?? {});
     if (Object.keys(detected).length === 0) return null;
-    const configPath = join(cwd, SKEG_DIR, CONFIG_FILE);
+    const configPath = join(cwd, VERITACK_DIR, CONFIG_FILE);
     if (!existsSync(configPath)) return detected;
     const raw = JSON.parse(readFileSync(configPath, 'utf8')) as {
       checks?: { commands?: Record<string, unknown> };
