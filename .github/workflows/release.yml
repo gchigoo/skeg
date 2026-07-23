@@ -29,13 +29,14 @@ jobs:
 
       - run: npm ci
       - run: npm run verify
-      - run: npm pack
       - run: npm run dogfood:dist
+      # dogfood:dist 会清理临时 tarball；发布产物再 pack 一次
+      - run: npm pack
 
       - name: Checksums and SBOM
         run: |
           set -euo pipefail
-          TARBALL="$(ls @gchigoo-skeg-*.tgz | head -n1)"
+          TARBALL="$(ls gchigoo-skeg-*.tgz | head -n1)"
           test -n "$TARBALL"
           sha256sum "$TARBALL" > SHA256SUMS.txt
           npm sbom --sbom-format spdx > sbom.spdx.json
@@ -47,7 +48,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          TARBALL="$(ls @gchigoo-skeg-*.tgz | head -n1)"
+          TARBALL="$(ls gchigoo-skeg-*.tgz | head -n1)"
           NOTES="Skeg ${GITHUB_REF_NAME}
 
           Artifacts: npm tarball, SHA-256 checksums, SPDX SBOM.
