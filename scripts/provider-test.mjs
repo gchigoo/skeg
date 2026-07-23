@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 /**
  * 第三方 Provider conformance：manifest / schema / 确定性 / 异常 / 耗时。
+ * 主进程 spawn 子进程（--worker）执行检查，超时 10s 防止挂死。
  * 用法：npx skeg-provider-test ./path/to/provider.mjs
  */
 import assert from 'node:assert/strict';
-import { pathToFileURL } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
 const MAX_MS = 50;
+const WORKER_TIMEOUT_MS = 10_000;
+const selfPath = fileURLToPath(import.meta.url);
 const root = new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 
 /**
@@ -25,12 +29,11 @@ function pass(msg) {
   console.log(`PASS  ${msg}`);
 }
 
-async function main() {
-  const target = process.argv[2];
-  if (!target) {
-    console.error('Usage: skeg-provider-test <provider-module>');
-    process.exit(2);
-  }
+/**
+ * 子进程：执行全部 conformance 检查。
+ * @param {string} target Provider 路径
+ */
+async function runWorker(target) {
   const abs = resolve(process.cwd(), target);
   const mod = await import(pathToFileURL(abs).href);
   const provider = mod.default ?? mod;
@@ -175,6 +178,63 @@ async function main() {
     process.exit(1);
   }
   console.log('\nProvider conformance passed.');
+}
+
+/**
+ * 主进程：spawn worker，透传 stdout/stderr，超时失败。
+ * @param {string} target Provider 路径
+ */
+function runParent(target) {
+  const result = spawnSync(
+    process.execPath,
+    ['--experimental-strip-types', selfPath, '--worker', target],
+    {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      timeout: WORKER_TIMEOUT_MS,
+      maxBuffer: 4 * 1024 * 1024,
+      env: process.env,
+    },
+  );
+
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+
+  if (result.error) {
+    if (result.error.code === 'ETIMEDOUT' || result.signal === 'SIGTERM') {
+      console.error('FAIL  provider conformance (timeout or crash)');
+      process.exit(1);
+    }
+    console.error(`FAIL  provider conformance (spawn error: ${result.error.message})`);
+    process.exit(1);
+  }
+
+  if (result.status === null) {
+    console.error('FAIL  provider conformance (timeout or crash)');
+    process.exit(1);
+  }
+
+  process.exit(result.status === 0 ? 0 : result.status ?? 1);
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  if (args[0] === '--worker') {
+    const target = args[1];
+    if (!target) {
+      console.error('Usage: skeg-provider-test --worker <provider-module>');
+      process.exit(2);
+    }
+    await runWorker(target);
+    return;
+  }
+
+  const target = args[0];
+  if (!target) {
+    console.error('Usage: skeg-provider-test <provider-module>');
+    process.exit(2);
+  }
+  runParent(target);
 }
 
 main().catch((err) => {

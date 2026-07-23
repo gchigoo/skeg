@@ -25,6 +25,7 @@ import {
   checkProviderTrust,
   classifyProviderSpec,
   hashProviderContent,
+  loadTrustStoreWithDiagnostics,
   providersConfigHash,
   resolveTrustedProviderTarget,
 } from './trust.ts';
@@ -135,12 +136,40 @@ function normalizeBundle(
   const v1 = root as unknown as SkegProviderV1;
   const id =
     typeof v1.id === 'string' && v1.id.trim() ? v1.id.trim() : fallbackId;
-  const capabilities = Array.isArray(v1.capabilities)
-    ? v1.capabilities.filter(
-        (c): c is ProviderCapability =>
-          c === 'policy' || c === 'check' || c === 'record',
-      )
-    : [];
+
+  if (!Array.isArray(v1.capabilities)) {
+    diagnostics.push({
+      level: 'error',
+      path,
+      message: `Provider ${id} capabilities must be a non-empty array`,
+    });
+    return { id, capabilities: [], diagnostics };
+  }
+
+  const rawCaps = v1.capabilities;
+  const seen = new Set<string>();
+  const capabilities: ProviderCapability[] = [];
+  for (const c of rawCaps) {
+    if (c !== 'policy' && c !== 'check' && c !== 'record') {
+      diagnostics.push({
+        level: 'error',
+        path,
+        message: `Provider ${id} has unknown capability ${JSON.stringify(c)}`,
+      });
+      continue;
+    }
+    if (seen.has(c)) {
+      diagnostics.push({
+        level: 'error',
+        path,
+        message: `Provider ${id} has duplicate capability ${c}`,
+      });
+      continue;
+    }
+    seen.add(c);
+    capabilities.push(c);
+  }
+
   const policies =
     v1.policies && typeof v1.policies.inspect === 'function'
       ? v1.policies
@@ -154,27 +183,64 @@ function normalizeBundle(
       ? v1.records
       : undefined;
 
+  // 声明 ↔ 实现严格一致
   if (capabilities.includes('policy') && !policies) {
     diagnostics.push({
-      level: 'warning',
+      level: 'error',
       path,
       message: `Provider ${id} lists policy capability but exports no policies`,
     });
   }
   if (capabilities.includes('check') && !checks) {
     diagnostics.push({
-      level: 'warning',
+      level: 'error',
       path,
       message: `Provider ${id} lists check capability but exports no checks`,
     });
   }
   if (capabilities.includes('record') && !records) {
     diagnostics.push({
-      level: 'warning',
+      level: 'error',
       path,
       message: `Provider ${id} lists record capability but exports no records`,
     });
   }
+  if (policies && !capabilities.includes('policy')) {
+    diagnostics.push({
+      level: 'error',
+      path,
+      message: `Provider ${id} exports policies without declaring policy capability`,
+    });
+  }
+  if (checks && !capabilities.includes('check')) {
+    diagnostics.push({
+      level: 'error',
+      path,
+      message: `Provider ${id} exports checks without declaring check capability`,
+    });
+  }
+  if (records && !capabilities.includes('record')) {
+    diagnostics.push({
+      level: 'error',
+      path,
+      message: `Provider ${id} exports records without declaring record capability`,
+    });
+  }
+
+  const hasError = diagnostics.some((d) => d.level === 'error');
+  if (hasError) {
+    // 拒载：不返回任何实现
+    return { id, capabilities: [], diagnostics };
+  }
+  if (capabilities.length === 0) {
+    diagnostics.push({
+      level: 'error',
+      path,
+      message: `Provider ${id} capabilities must be a non-empty array`,
+    });
+    return { id, capabilities: [], diagnostics };
+  }
+
   return { id, capabilities, policies, checks, records, diagnostics };
 }
 
@@ -190,14 +256,20 @@ export async function loadProviders(
 ): Promise<LoadedProviders> {
   const entries = config.providers ?? [];
   const configHash = providersConfigHash(entries);
+  const trustLoaded = loadTrustStoreWithDiagnostics();
   if (entries.length === 0) {
-    return { ...EMPTY, diagnostics: [], configHash, entries: [] };
+    return {
+      ...EMPTY,
+      diagnostics: [...trustLoaded.diagnostics],
+      configHash,
+      entries: [],
+    };
   }
 
   const policies: NamedProvider<PolicyProvider>[] = [];
   const checks: NamedProvider<CheckProvider>[] = [];
   const records: NamedProvider<RecordSelector>[] = [];
-  const diagnostics: ConfigDiagnostic[] = [];
+  const diagnostics: ConfigDiagnostic[] = [...trustLoaded.diagnostics];
   const requiredPolicyFailures: RequiredPolicyFailure[] = [];
 
   for (let i = 0; i < entries.length; i += 1) {

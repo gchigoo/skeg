@@ -3,9 +3,11 @@
  */
 import assert from 'node:assert/strict';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -18,6 +20,9 @@ import {
   classifyProviderSpec,
   findRelativeRuntimeImport,
   hashProviderContent,
+  loadTrustStore,
+  loadTrustStoreWithDiagnostics,
+  saveTrustStore,
   trustProvider,
   untrustProvider,
 } from './trust.ts';
@@ -118,5 +123,36 @@ describe('trustProvider', () => {
     assert.equal(self.ok, false);
     const trusted = trustProvider(cwd, '.skeg/providers/multi.mjs');
     assert.equal(trusted.ok, false);
+  });
+
+  it('atomic write preserves trust store content', () => {
+    const spec = '.skeg/providers/special.mjs';
+    assert.equal(trustProvider(cwd, spec).ok, true);
+    const store = loadTrustStore();
+    assert.equal(store.providers.length, 1);
+    saveTrustStore(store);
+    const again = loadTrustStore();
+    assert.equal(again.providers.length, 1);
+    assert.equal(again.providers[0]?.spec, spec);
+    const body = readFileSync(join(userDir, 'trust.json'), 'utf8');
+    assert.ok(body.includes(spec));
+  });
+
+  it('backs up corrupt trust.json and does not silently trust (TrustStoreSilentWipe)', () => {
+    writeFileSync(join(userDir, 'trust.json'), '{not-json', 'utf8');
+    const result = loadTrustStoreWithDiagnostics();
+    assert.equal(result.store.providers.length, 0);
+    assert.ok(result.diagnostics.some((d) => d.level === 'error'));
+    assert.ok(result.corruptBackup);
+    assert.ok(existsSync(result.corruptBackup!));
+    const backups = readdirSync(userDir).filter((f) =>
+      f.startsWith('trust.json.corrupt-'),
+    );
+    assert.ok(backups.length >= 1);
+    // 损坏后不得静默信任任何 provider
+    assert.equal(
+      checkProviderTrust(cwd, '.skeg/providers/special.mjs').trusted,
+      false,
+    );
   });
 });

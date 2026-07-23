@@ -24,8 +24,8 @@ const EXTENSIONS_TOTAL_LOC_BUDGET = 700;
 const INJECT_TOKEN_BUDGET_MAX = 300;
 /** core 公开 registerCommand 次数 */
 const CORE_REGISTER_COMMAND_MAX = 1;
-/** src/commands.ts case 标签数（含 run/start 别名） */
-const COMMAND_CASE_MAX = 9;
+/** src/commands.ts case 标签数（含 run/start 别名与 doctor） */
+const COMMAND_CASE_MAX = 10;
 /** reducer SkegEvent 变体数 */
 const SKEG_EVENT_VARIANTS_MAX = 15;
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.2 — 2026-07-23
+
+Operational Hardening：信任存储、capability 契约、conformance 隔离与诊断。
+
+### Added
+- `/skeg doctor`：config / trust / providers / run / env 只读诊断
+- trust store 原子写（`trust.json.tmp` + rename，POSIX `0600`）与损坏备份诊断
+- Provider capability 与导出严格一致（未知 / 重复 / 声明↔实现不一致 → 拒载）
+- `skeg-provider-test` 子进程隔离 + 10s 超时
+- 冻结 v1/v2 RunState migration fixtures
+
+### Changed
+- 命令面预算 `COMMAND_CASE_MAX` 9 → 10（为 doctor 有意扩面）
+
 ## 1.0.1 — 2026-07-22
 
 Contract Integrity：冻结 Run 验证契约，封死路径/信任/假证据缺口。

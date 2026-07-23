@@ -237,6 +237,105 @@ export default { checks: { classify() { return null; } } };
       ),
     );
   });
+
+  it('CapabilityMismatch: declared without export', async () => {
+    const spec = '.skeg/providers/cap-miss.mjs';
+    writeFileSync(
+      join(cwd, '.skeg', 'providers', 'cap-miss.mjs'),
+      `export default {
+  apiVersion: 1, id: 'cap-miss', capabilities: ['check']
+};
+`,
+      'utf8',
+    );
+    assert.equal(trustProvider(cwd, spec).ok, true);
+    const loaded = await loadProviders(cwd, {
+      ...DEFAULT_CONFIG,
+      providers: [entry(spec)],
+    });
+    assert.equal(loaded.checks.length, 0);
+    assert.ok(
+      loaded.diagnostics.some(
+        (d) => d.level === 'error' && /lists check capability/i.test(d.message),
+      ),
+    );
+  });
+
+  it('CapabilityMismatch: export without declaration', async () => {
+    const spec = '.skeg/providers/cap-extra.mjs';
+    writeFileSync(
+      join(cwd, '.skeg', 'providers', 'cap-extra.mjs'),
+      `export default {
+  apiVersion: 1, id: 'cap-extra', capabilities: ['check'],
+  checks: { classify() { return null; } },
+  policies: { inspect() { return []; } }
+};
+`,
+      'utf8',
+    );
+    assert.equal(trustProvider(cwd, spec).ok, true);
+    const loaded = await loadProviders(cwd, {
+      ...DEFAULT_CONFIG,
+      providers: [entry(spec)],
+    });
+    assert.equal(loaded.policies.length, 0);
+    assert.equal(loaded.checks.length, 0);
+    assert.ok(
+      loaded.diagnostics.some(
+        (d) =>
+          d.level === 'error' &&
+          /without declaring policy capability/i.test(d.message),
+      ),
+    );
+  });
+
+  it('CapabilityMismatch: unknown capability', async () => {
+    const spec = '.skeg/providers/cap-unk.mjs';
+    writeFileSync(
+      join(cwd, '.skeg', 'providers', 'cap-unk.mjs'),
+      `export default {
+  apiVersion: 1, id: 'cap-unk', capabilities: ['phase'],
+  checks: { classify() { return null; } }
+};
+`,
+      'utf8',
+    );
+    assert.equal(trustProvider(cwd, spec).ok, true);
+    const loaded = await loadProviders(cwd, {
+      ...DEFAULT_CONFIG,
+      providers: [entry(spec)],
+    });
+    assert.equal(loaded.checks.length, 0);
+    assert.ok(
+      loaded.diagnostics.some(
+        (d) => d.level === 'error' && /unknown capability/i.test(d.message),
+      ),
+    );
+  });
+
+  it('CapabilityMismatch: duplicate capability', async () => {
+    const spec = '.skeg/providers/cap-dup.mjs';
+    writeFileSync(
+      join(cwd, '.skeg', 'providers', 'cap-dup.mjs'),
+      `export default {
+  apiVersion: 1, id: 'cap-dup', capabilities: ['check', 'check'],
+  checks: { classify() { return null; } }
+};
+`,
+      'utf8',
+    );
+    assert.equal(trustProvider(cwd, spec).ok, true);
+    const loaded = await loadProviders(cwd, {
+      ...DEFAULT_CONFIG,
+      providers: [entry(spec)],
+    });
+    assert.equal(loaded.checks.length, 0);
+    assert.ok(
+      loaded.diagnostics.some(
+        (d) => d.level === 'error' && /duplicate capability/i.test(d.message),
+      ),
+    );
+  });
 });
 
 describe('mergePolicyHits', () => {

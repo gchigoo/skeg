@@ -8,6 +8,7 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   writeFileSync,
 } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -15,6 +16,7 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isRealDescendant, normalizePath, tryRealpath } from './paths.ts';
+import type { ConfigDiagnostic } from './types.ts';
 
 export type ProviderTrust = {
   repoRealPath: string;
@@ -33,7 +35,15 @@ export type ProviderSpecKind =
   | { ok: false; reason: string };
 
 const TRUST_FILE = 'trust.json';
+const TRUST_TMP = 'trust.json.tmp';
 const PROVIDERS_DIR = '.skeg/providers';
+
+export type TrustStoreLoadResult = {
+  store: TrustStore;
+  diagnostics: ConfigDiagnostic[];
+  /** 损坏时备份路径（若有） */
+  corruptBackup?: string;
+};
 
 /**
  * 用户级 Skeg 目录（可用 SKEG_USER_DIR 覆盖，便于测试）。
@@ -273,41 +283,138 @@ export function hashProviderContent(
 }
 
 /**
- * 读取信任存储。
- * @returns 存储对象
+ * 规范化 trust store 条目。
+ * @param raw 解析后对象
+ * @returns TrustStore 或 null（结构非法）
  */
-export function loadTrustStore(): TrustStore {
+function normalizeTrustStore(raw: unknown): TrustStore | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const providers = (raw as TrustStore).providers;
+  if (!Array.isArray(providers)) return null;
+  return {
+    providers: providers.filter(
+      (p) =>
+        p &&
+        typeof p.repoRealPath === 'string' &&
+        typeof p.spec === 'string' &&
+        typeof p.contentHash === 'string',
+    ),
+  };
+}
+
+/**
+ * 读取信任存储并返回诊断（损坏时备份原文件）。
+ * @returns store + diagnostics
+ */
+export function loadTrustStoreWithDiagnostics(): TrustStoreLoadResult {
   const file = join(skegUserDir(), TRUST_FILE);
-  if (!existsSync(file)) return { providers: [] };
+  if (!existsSync(file)) {
+    return { store: { providers: [] }, diagnostics: [] };
+  }
+
+  let text: string;
   try {
-    const raw = JSON.parse(readFileSync(file, 'utf8')) as TrustStore;
-    if (!raw || !Array.isArray(raw.providers)) return { providers: [] };
+    text = readFileSync(file, 'utf8');
+  } catch (err) {
     return {
-      providers: raw.providers.filter(
-        (p) =>
-          p &&
-          typeof p.repoRealPath === 'string' &&
-          typeof p.spec === 'string' &&
-          typeof p.contentHash === 'string',
-      ),
+      store: { providers: [] },
+      diagnostics: [
+        {
+          level: 'error',
+          path: 'trust.json',
+          message: `Cannot read trust store: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      ],
     };
-  } catch {
-    return { providers: [] };
+  }
+
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    const store = normalizeTrustStore(parsed);
+    if (!store) {
+      return backupCorruptTrust(file, text, 'Trust store root must be { providers: [] }');
+    }
+    return { store, diagnostics: [] };
+  } catch (err) {
+    return backupCorruptTrust(
+      file,
+      text,
+      `Trust store JSON parse error: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
 /**
- * 写入信任存储。
+ * 损坏 trust.json：备份后返回空 store。
+ * @param file 原路径
+ * @param text 原内容
+ * @param message 诊断消息
+ * @returns 空 store + 诊断
+ */
+function backupCorruptTrust(
+  file: string,
+  text: string,
+  message: string,
+): TrustStoreLoadResult {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backup = join(dirname(file), `trust.json.corrupt-${stamp}`);
+  try {
+    writeFileSync(backup, text, 'utf8');
+  } catch {
+    return {
+      store: { providers: [] },
+      diagnostics: [
+        {
+          level: 'error',
+          path: 'trust.json',
+          message: `${message}; backup failed — treating as empty trust store`,
+        },
+      ],
+    };
+  }
+  try {
+    // 清空原文件，避免下次重复报错；信任需重新建立
+    writeFileSync(file, `${JSON.stringify({ providers: [] }, null, 2)}\n`, {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
+  } catch {
+    /* 清空失败时仍返回空 store */
+  }
+  return {
+    store: { providers: [] },
+    corruptBackup: backup,
+    diagnostics: [
+      {
+        level: 'error',
+        path: 'trust.json',
+        message: `${message}; backed up to ${backup}; trust store reset (re-trust providers)`,
+      },
+    ],
+  };
+}
+
+/**
+ * 读取信任存储（忽略诊断；兼容旧调用）。
+ * @returns 存储对象
+ */
+export function loadTrustStore(): TrustStore {
+  return loadTrustStoreWithDiagnostics().store;
+}
+
+/**
+ * 原子写入信任存储（tmp + rename；POSIX mode 0600，Windows 忽略 mode）。
  * @param store 存储
  */
 export function saveTrustStore(store: TrustStore): void {
   const dir = skegUserDir();
   mkdirSync(dir, { recursive: true });
-  writeFileSync(
-    join(dir, TRUST_FILE),
-    `${JSON.stringify(store, null, 2)}\n`,
-    'utf8',
-  );
+  const tmp = join(dir, TRUST_TMP);
+  const dest = join(dir, TRUST_FILE);
+  const body = `${JSON.stringify(store, null, 2)}\n`;
+  // mode 在 Windows 上被忽略；POSIX 限制仅用户可读写
+  writeFileSync(tmp, body, { encoding: 'utf8', mode: 0o600 });
+  renameSync(tmp, dest);
 }
 
 export type TrustCheckResult =

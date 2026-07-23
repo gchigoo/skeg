@@ -545,7 +545,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerCommand('skeg', {
     description:
-      'Skeg: init|start|status|finish|record|providers|trust|untrust',
+      'Skeg: init|start|status|finish|record|providers|trust|untrust|doctor',
     handler: async (args, ctx) => {
       commandDeps.getEntries = () => ctx.sessionManager.getEntries();
       commandDeps.reloadProviders = async () => {

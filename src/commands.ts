@@ -12,6 +12,7 @@ import {
   formatContractDriftHint,
   hasContractDrift,
 } from './contract.ts';
+import { buildDoctorReport } from './doctor.ts';
 import { initSkeg } from './init.ts';
 import {
   formatProvidersStatus,
@@ -292,9 +293,26 @@ export async function handleCommand(
       }
       return;
     }
+    case 'doctor': {
+      const loaded = reload();
+      notifyDiagnostics(ctx.ui, loaded.diagnostics);
+      if (!deps.getRun()) {
+        deps.setRun(latestRunFromEntries(deps.getEntries()));
+      }
+      ctx.ui.notify(
+        buildDoctorReport({
+          cwd: ctx.cwd,
+          run: deps.getRun(),
+          config: deps.getConfig(),
+          providers: deps.getProviders(),
+        }),
+        'info',
+      );
+      return;
+    }
     default:
       ctx.ui.notify(
-        `Unknown skeg command: ${name}. Try init|start|status|finish|record|providers|trust|untrust`,
+        `Unknown skeg command: ${name}. Try init|start|status|finish|record|providers|trust|untrust|doctor`,
         'error',
       );
   }
