@@ -536,7 +536,16 @@ export default function (pi: ExtensionAPI) {
   pi.on('agent_end', async () => {
     /* telemetry only */
   });
-  pi.on('agent_settled', async (_event, ctx) => {
+  // agent_settled：peer 下限小版本类型面可能尚未列入；运行时仍注册
+  (
+    pi.on as (
+      event: string,
+      handler: (
+        event: unknown,
+        ctx: Parameters<typeof settle>[0],
+      ) => void | Promise<void>,
+    ) => void
+  )('agent_settled', async (_event, ctx) => {
     await settle(ctx);
   });
   pi.on('session_before_compact', async () => {
