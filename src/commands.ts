@@ -32,6 +32,7 @@ import {
 } from './run.ts';
 import { trustProvider, untrustProvider } from './trust.ts';
 import { RUN_ENTRY_TYPE, type RunState, type SkegConfig } from './types.ts';
+import { buildWhyReport } from './why.ts';
 
 export type CommandUi = {
   notify: (message: string, level: 'info' | 'warning' | 'error') => void;
@@ -167,6 +168,10 @@ export async function handleCommand(
           ),
           'info',
         );
+        return;
+      }
+      if (hasCliFlag(args, '--why')) {
+        ctx.ui.notify(buildWhyReport(run, deps.getConfig()), 'info');
         return;
       }
       let text = formatStatus(run);

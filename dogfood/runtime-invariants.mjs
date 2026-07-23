@@ -775,6 +775,47 @@ export default { checks: { classify() { return null; } } };
     }
   });
 
+  await inv('长 run compact 后体积有界且 closure 语义不变', async () => {
+    const { compactRun, maybeCompactRun } = await import(
+      pathToFileURL(join(root, 'src/compact.ts')).href
+    );
+    const { buildRunContract } = await import(
+      pathToFileURL(join(root, 'src/contract.ts')).href
+    );
+    const cfg = {
+      ...DEFAULT_CONFIG,
+      checks: {
+        default: ['test', 'diff'],
+        guarded: ['test', 'typecheck', 'lint', 'diff'],
+      },
+    };
+    let run = reduce(null, {
+      type: 'RUN_STARTED',
+      intent: 'bounded runtime',
+      risk: 'lean',
+      contract: buildRunContract(cfg),
+    });
+    for (let i = 0; i < 100; i++) {
+      run = upsertCheck(run, {
+        kind: 'command',
+        name: 'test',
+        passed: true,
+        evidence: `out ${i} ${'w'.repeat(60)}`,
+      });
+      run = upsertCheck(run, { kind: 'diff', name: 'diff', passed: true });
+      run = reduce(run, {
+        type: 'MUTATION_COMMITTED',
+        paths: [`src/r${i}.ts`],
+      });
+      run = maybeCompactRun(run);
+    }
+    const size = JSON.stringify(run).length;
+    assert.ok(size < 32 * 1024, `RunState ${size} >= 32KB`);
+    const before = evaluateClosure(run, cfg);
+    const after = evaluateClosure(compactRun(run), cfg);
+    assert.deepEqual(after, before);
+  });
+
   // 结构化 metrics：任一失败用例标记对应维度
   const aggregate = {
     falseDone: results.some((r) => !r.ok && r.name.includes('closure')),

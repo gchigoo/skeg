@@ -296,7 +296,7 @@ class PiRpc {
       {
         cwd: this.cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env },
+        env: { ...process.env, SKEG_CONTEXT_AUDIT: 'full' },
       },
     );
     this.proc.on('error', (err) => {

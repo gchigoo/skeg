@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.0 — 2026-07-23
+
+Explainability and Long-Session UX：可验证解释、RunState 有界压缩、审计摘要化。
+
+### Added
+- `/skeg status --why`：解释 risk / gates / required checks / waivers / contract drift（含 revision、trigger、hash 前缀）
+- `compactRun` / `maybeCompactRun`：超阈值压缩历史 checks/signals/gates，保持 `evaluateClosure` 语义
+- `skeg/context` 默认 `{ hash, tokens }`；`SKEG_CONTEXT_AUDIT=full` 时附加 `content`
+
+### Changed
+- `formatStatus`：当前 revision checks 全列；stale 最多 8 条 + 摘要；列出最近 resolved gates
+- 注入预算与命令面预算不变（300 tokens / 10 cases / 15 events）
+
 ## 1.1.0 — 2026-07-23
 
 Public API and Supply Chain：正式 Provider 入口、只读公共 DTO、JSON 证据报告、发布供应链与 Pi 兼容矩阵。

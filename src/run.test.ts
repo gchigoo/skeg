@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { reduce } from './reducer.ts';
 import {
   applyAdvisoryRisk,
   applyRiskHit,
   closeRun,
   createRun,
+  formatStatus,
   hasCliFlag,
   isOpenRun,
   latestRunFromEntries,
   resolveGate,
+  upsertCheck,
 } from './run.ts';
 
 describe('hasCliFlag', () => {
@@ -89,5 +92,46 @@ describe('closeRun', () => {
     const run = closeRun(createRun('x'), 'done');
     assert.equal(run.status, 'done');
     assert.equal(isOpenRun(run), false);
+  });
+});
+
+describe('formatStatus bounded', () => {
+  it('summarizes many stale checks', () => {
+    let run = createRun('long status');
+    for (let i = 0; i < 12; i++) {
+      run = upsertCheck(run, {
+        kind: 'command',
+        name: `c${i}`,
+        passed: true,
+      });
+      run = reduce(run, {
+        type: 'MUTATION_COMMITTED',
+        paths: [`f${i}.ts`],
+      });
+    }
+    run = upsertCheck(run, {
+      kind: 'diff',
+      name: 'diff',
+      passed: true,
+    });
+    const text = formatStatus(run);
+    assert.match(text, /pass:diff@r12/);
+    assert.match(text, /\+\d+ stale \(r\d+–r\d+\)/);
+    const staleListed = (text.match(/\(stale\)/g) ?? []).length;
+    assert.ok(staleListed <= 8);
+  });
+
+  it('lists recent resolved gates', () => {
+    let run = createRun('gates');
+    run = applyRiskHit(run, {
+      trigger: 'protectedPaths',
+      strength: 'deterministic',
+      path: '.env',
+      reason: 'secret',
+    });
+    run = resolveGate(run);
+    run = reduce(run, { type: 'GATE_CLEARED' });
+    const text = formatStatus(run);
+    assert.match(text, /Resolved:.*approved:protectedPaths/);
   });
 });

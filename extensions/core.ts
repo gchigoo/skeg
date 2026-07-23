@@ -26,6 +26,8 @@ import {
   clearHostSession,
   pendingMutations,
 } from '../src/hostsession.ts';
+import { maybeCompactRun } from '../src/compact.ts';
+import { buildContextAuditPayload } from '../src/contextaudit.ts';
 import { buildInjectContext } from '../src/inject.ts';
 import { authorizeMutationPaths } from '../src/paths.ts';
 import {
@@ -120,7 +122,7 @@ export default function (pi: ExtensionAPI) {
     // catch 防毒化：单次 reduce 异常后队列仍可继续
     queue = queue
       .then(() => {
-        const next = reduce(run, event);
+        const next = maybeCompactRun(reduce(run, event));
         if (!sameState(run, next)) {
           run = next;
           pi.appendEntry(RUN_ENTRY_TYPE, next);
@@ -220,11 +222,14 @@ export default function (pi: ExtensionAPI) {
       disabledProviderSpecs,
       onProviderErrors: (errors) => noteProviderErrors(ctx.ui, errors),
     });
-    // RPC 不暴露 systemPrompt；内容 hash 变化时落审计 entry（不进 LLM）
+    // RPC 不暴露 systemPrompt；hash 变化时落审计（默认摘要；full 才带 content）
     const injectHash = createHash('sha256').update(content).digest('hex');
     if (injectHash !== lastInjectHash) {
       lastInjectHash = injectHash;
-      pi.appendEntry(CONTEXT_ENTRY_TYPE, { content });
+      pi.appendEntry(
+        CONTEXT_ENTRY_TYPE,
+        buildContextAuditPayload(content, injectHash),
+      );
     }
     const base = event.systemPrompt ?? '';
     return { systemPrompt: base ? `${base}\n\n${content}` : content };

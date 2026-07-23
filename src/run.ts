@@ -218,20 +218,7 @@ export function hasFreshPass(run: RunState, name: string): boolean {
  */
 export function formatStatus(run: RunState | null): string {
   if (!run) return 'No active Skeg run. Use /run <intent> to start.';
-  const checks =
-    run.checks.length === 0
-      ? '(none)'
-      : run.checks
-          .map((c) => {
-            const stale = c.revision !== run.revision;
-            const mark = c.passed ? 'pass' : 'fail';
-            const src =
-              c.source && c.source !== 'builtin' ? `/${c.source}` : '';
-            return stale
-              ? `${mark}:${c.name}@r${c.revision}${src}(stale)`
-              : `${mark}:${c.name}@r${c.revision}${src}`;
-          })
-          .join(', ');
+  const checks = formatChecksLine(run);
   const gate = run.pendingGate
     ? `${run.pendingGate.trigger}${run.pendingGate.resolved ? ' (resolved)' : ''}: ${run.pendingGate.reason}`
     : '(none)';
@@ -262,11 +249,67 @@ export function formatStatus(run: RunState | null): string {
     `Signals: ${signals}`,
     `Gate:    ${gate}`,
   ];
+  const resolvedBrief = formatResolvedGatesBrief(run);
+  if (resolvedBrief) lines.push(`Resolved: ${resolvedBrief}`);
   if (uniqueSources.length > 0) {
     lines.push(`Sources: ${uniqueSources.join(', ')}`);
   }
   lines.push(`Id:      ${run.id}`);
   return lines.join('\n');
+}
+
+/** stale checks 最多逐条列出 */
+const STALE_STATUS_LIST_MAX = 8;
+/** resolved gates 摘要条数 */
+const RESOLVED_STATUS_MAX = 3;
+
+/**
+ * 有界 Checks 行：当前 revision 全列；stale 最多 8 条 + 摘要。
+ * @param run run
+ * @returns Checks 字段文本
+ */
+function formatChecksLine(run: RunState): string {
+  if (run.checks.length === 0) return '(none)';
+  const fmt = (c: (typeof run.checks)[number], stale: boolean) => {
+    const mark = c.passed ? 'pass' : 'fail';
+    const src = c.source && c.source !== 'builtin' ? `/${c.source}` : '';
+    return stale
+      ? `${mark}:${c.name}@r${c.revision}${src}(stale)`
+      : `${mark}:${c.name}@r${c.revision}${src}`;
+  };
+  const fresh = run.checks.filter((c) => c.revision === run.revision);
+  const stale = run.checks
+    .filter((c) => c.revision !== run.revision)
+    .sort((a, b) => b.revision - a.revision);
+  const parts = fresh.map((c) => fmt(c, false));
+  const listed = stale.slice(0, STALE_STATUS_LIST_MAX);
+  parts.push(...listed.map((c) => fmt(c, true)));
+  if (stale.length > STALE_STATUS_LIST_MAX) {
+    const rest = stale.slice(STALE_STATUS_LIST_MAX);
+    const revs = rest.map((c) => c.revision);
+    const rmin = Math.min(...revs);
+    const rmax = Math.max(...revs);
+    parts.push(`+${rest.length} stale (r${rmin}–r${rmax})`);
+  }
+  return parts.length === 0 ? '(none)' : parts.join(', ');
+}
+
+/**
+ * 最近已 resolved gates 摘要。
+ * @param run run
+ * @returns 文本或空
+ */
+function formatResolvedGatesBrief(run: RunState): string {
+  const resolved = run.gates
+    .filter((g) => g.resolved || g.status === 'approved' || g.status === 'denied')
+    .filter((g) => !run.pendingGate || g.id !== run.pendingGate.id);
+  if (resolved.length === 0) return '';
+  const recent = resolved.slice(-RESOLVED_STATUS_MAX);
+  const body = recent
+    .map((g) => `${g.status}:${g.trigger}`)
+    .join(', ');
+  const extra = resolved.length - recent.length;
+  return extra > 0 ? `${body} +${extra} older` : body;
 }
 
 /**
