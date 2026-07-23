@@ -61,7 +61,7 @@ jobs:
             npm ci
             npm install --no-save "@earendil-works/pi-coding-agent@${{ matrix.pi }}"
           fi
-          node -p "require('@earendil-works/pi-coding-agent/package.json').version"
+          node -p "JSON.parse(require('fs').readFileSync('node_modules/@earendil-works/pi-coding-agent/package.json','utf8')).version"
       - run: npm run typecheck
       - run: npm test
       - run: npm run dogfood:runtime
