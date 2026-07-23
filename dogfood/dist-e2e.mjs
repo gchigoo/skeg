@@ -152,6 +152,8 @@ async function main() {
       'extensions/core.ts',
       'extensions/compat.ts',
       'src/provider-api.ts',
+      'dist/provider-api.js',
+      'dist/provider-api.d.ts',
       'src/providers.ts',
       'src/trust.ts',
       'src/hostsession.ts',
@@ -160,6 +162,35 @@ async function main() {
     for (const f of requiredFiles) {
       check(`skeg tarball contains ${f}`, existsSync(join(skegExtract, f)));
     }
+
+    // 干净沙箱：正式入口 import('@gchigoo/skeg/provider-api')
+    const apiSandbox = join(work, 'api-import');
+    mkdirSync(apiSandbox, { recursive: true });
+    writeFileSync(
+      join(apiSandbox, 'package.json'),
+      JSON.stringify(
+        {
+          name: 'skeg-api-import',
+          version: '0.0.0',
+          private: true,
+          type: 'module',
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+    runNpm(apiSandbox, ['install', skegPackCopy]);
+    const apiMod = await import(
+      pathToFileURL(
+        join(apiSandbox, 'node_modules', '@gchigoo', 'skeg', 'dist', 'provider-api.js'),
+      ).href
+    );
+    check(
+      'DistEntryImportable defineProvider',
+      typeof apiMod.defineProvider === 'function' &&
+        apiMod.SKEG_PROVIDER_API_VERSION === 1,
+    );
 
     // --- sandbox fixture ---
     writeFileSync(

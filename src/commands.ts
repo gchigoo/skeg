@@ -21,6 +21,7 @@ import {
 import { createRecord, parseRecordArgs } from './record.ts';
 import { runProveChecks } from './prove.ts';
 import { sameState, type SkegEvent } from './reducer.ts';
+import { buildEvidenceReportV1 } from './report.ts';
 import {
   formatCloseReport,
   formatStatus,
@@ -157,6 +158,17 @@ export async function handleCommand(
       const loaded = reload();
       notifyDiagnostics(ctx.ui, loaded.diagnostics);
       const run = deps.getRun();
+      if (hasCliFlag(args, '--json')) {
+        ctx.ui.notify(
+          JSON.stringify(
+            buildEvidenceReportV1(run, deps.getConfig()),
+            null,
+            2,
+          ),
+          'info',
+        );
+        return;
+      }
       let text = formatStatus(run);
       if (hasContractDrift(run, deps.getConfig())) {
         text = `${text}\n${formatContractDriftHint()}`;

@@ -70,14 +70,16 @@ v1.0 起默认只注册 `/skeg`。扁平 `/init` `/run` `/status` `/finish` `/re
 
 ## Status
 
-**v1.0.0** — Stable Surface：默认只注册 `/skeg`；Provider API v1 为唯一加载格式；`riskTriggers` 不再映射。
+**v1.1.0** — Public API and Supply Chain：编译后的 Provider API 入口、只读公共 DTO、`/skeg status --json`、tag-driven release 与 Pi 兼容矩阵。
 
 ### 稳定面承诺
 
-- 命令面：`/skeg init|start|status|finish|record|trust|untrust|providers…`
-- Provider：`@gchigoo/skeg/provider-api` + `apiVersion: 1` / `defineProvider`
+- 命令面：`/skeg init|start|status|finish|record|trust|untrust|providers|doctor…`
+- Provider：编译入口 `@gchigoo/skeg/provider-api`（`dist/provider-api.js` + `.d.ts`）+ `apiVersion: 1` / `defineProvider`
 - Config：`policies` / 结构化或 `/regex/` CheckMatcher；普通子串 matcher 拒绝
 - Closure：当前 revision 证据；`--waive` / `--abandon` 显式出口
+- JSON：`/skeg status --json` 输出 Evidence Report V1（不写仓库文件）
+- 包导出：`./provider-api` 与 `./package.json` 为正式面；通配 `./*` **deprecated**，计划 v1.3 移除
 
 ```bash
 npm run verify
@@ -121,7 +123,7 @@ Smoke 剧本：lean1 编辑后跑 `npm test -- <path>` 再 `/skeg finish`；lean
 
 ### Writing a provider
 
-只依赖 `@gchigoo/skeg/provider-api`，禁止 `src/*` 内部导入。示例见 `examples/providers/`（postgres / monorepo / rust；零运行时依赖的 `.mjs`）。
+只依赖正式入口 `@gchigoo/skeg/provider-api`（编译产物，自包含只读 V1 DTO），禁止 `src/*` 内部导入。示例见 `examples/providers/`（postgres / monorepo / rust；零运行时依赖的 `.mjs`）。
 
 ```js
 import { defineProvider } from '@gchigoo/skeg/provider-api';
@@ -137,6 +139,8 @@ export default defineProvider({
   },
 });
 ```
+
+本地开发可先 `npm run build` 生成 `dist/`，再按包导出解析类型与运行时。
 
 ```bash
 npx skeg-provider-test .skeg/providers/postgres.mjs
@@ -164,7 +168,8 @@ npm run check:providers
 - Providers 仅可位于 `.skeg/providers/**`（或裸包名）；须 `/skeg trust <spec>` 后才加载；内容变更后信任失效
 - `/skeg providers` / `trust` / `untrust` / `providers reload` 管理扩展信任
 - `required` PolicyProvider 失效时阻断 mutation；optional 失败仅 warning + session 禁用
-- `/skeg status` 展示 check/gate 的 `provider:<id>` provenance
+- `/skeg status` 展示 check/gate 的 `provider:<id>` provenance；`/skeg status --json` 输出稳定 Evidence Report
+- `/skeg doctor` 只读诊断 config / trust / providers / run / env
 - `pnpm test || true` 等掩盖退出码的命令不记为 check 证据
 - Providers 可追加 Policy / Check / Record；不能增加新的核心阶段状态机（见 `NON_GOALS.md`）
 

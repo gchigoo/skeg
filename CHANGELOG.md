@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.0 — 2026-07-23
+
+Public API and Supply Chain：正式 Provider 入口、只读公共 DTO、JSON 证据报告、发布供应链与 Pi 兼容矩阵。
+
+### Added
+- 自包含只读 V1 DTO（`ProviderActionV1` / `ProviderConfigV1` / `ProviderRiskHitV1` 等）；`provider-api` 零 import
+- `deepFreezeCopy` / `frozenConfigView`：Policy / Check / Record 调用点传冻结副本
+- `tsc` 编译入口：`dist/provider-api.js` + `dist/provider-api.d.ts`（`npm run build` / `prepack`）
+- `/skeg status --json` → Evidence Report V1（`schemaVersion: 1`）
+- `.github/workflows/release.yml`：tag=version 校验、verify、checksums、SPDX SBOM、GitHub Release、可选 npm provenance
+- CI `pi-compat` 矩阵（Pi `0.80.1` / lockfile / latest-0.8x）+ 每周定时 smoke
+
+### Changed
+- `exports["./provider-api"]` 指向 `dist/`；新增 `exports["./package.json"]`
+- 通配 `exports["./*"]` 标记 deprecated（计划 v1.3 移除）
+- 旧导出名 `RiskHit` / `ClassifiedCheck` / `RecordIndexEntry` / `ProviderAction` 为 V1 DTO 类型别名（apiVersion 仍为 1）
+
 ## 1.0.2 — 2026-07-23
 
 Operational Hardening：信任存储、capability 契约、conformance 隔离与诊断。

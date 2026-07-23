@@ -4,6 +4,7 @@
  * 加载前强制 workspace trust；未信任不 import。
  */
 import type { ClassifiedCheck } from './checks.ts';
+import { deepFreezeCopy, frozenConfigView } from './freeze.ts';
 import {
   type CheckProvider,
   type PolicyProvider,
@@ -503,11 +504,14 @@ export function mergePolicyHits(
   const extra: RiskHit[] = [];
   const errors: ProviderRuntimeError[] = [];
   const diagnostics: ConfigDiagnostic[] = [];
+  const frozenConfig = frozenConfigView(config);
 
   for (const p of policies) {
     if (disabledSpecs.has(p.spec)) continue;
     try {
-      const raw = p.impl.inspect(action, config);
+      // action 每次冻结；config 走 WeakMap 缓存
+      const frozenAction = deepFreezeCopy(action);
+      const raw = p.impl.inspect(frozenAction, frozenConfig);
       const validated = validateRiskHits(
         raw,
         `provider:${p.id}`,
@@ -563,11 +567,12 @@ export function classifyWithProviders(
   const diagnostics: ConfigDiagnostic[] = [];
   let firstHit: ClassifiedCheck | null = null;
   let firstPriority: number | null = null;
+  const frozenConfig = frozenConfigView(config);
 
   for (const c of checks) {
     if (disabledSpecs.has(c.spec)) continue;
     try {
-      const raw = c.impl.classify(command, config);
+      const raw = c.impl.classify(command, frozenConfig);
       const validated = validateClassifiedCheck(
         raw,
         `provider:${c.id}`,
@@ -647,11 +652,12 @@ export function selectRecordsWithProviders(
   const augmented: RecordIndexEntry[] = [];
   let replaced: RecordIndexEntry[] | null = null;
   let replaceTaken = false;
+  const frozenCtx = deepFreezeCopy(ctx);
 
   for (const s of selectors) {
     if (disabledSpecs.has(s.spec)) continue;
     try {
-      const picked = s.impl.select(ctx);
+      const picked = s.impl.select(frozenCtx);
       const parsed = parseRecordSelection(picked);
       if (!parsed) continue;
       const validated = validateRecordEntries(

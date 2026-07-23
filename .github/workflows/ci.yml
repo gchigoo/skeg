@@ -4,6 +4,9 @@ on:
   push:
     branches: [master, main]
   pull_request:
+  schedule:
+    # 每周一 UTC 06:00：Pi 兼容 smoke
+    - cron: '0 6 * * 1'
 
 jobs:
   verify:
@@ -14,8 +17,8 @@ jobs:
         node: [22, 24]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -28,4 +31,38 @@ jobs:
       - run: npm run dogfood:runtime
       - run: npm run dogfood
       - run: npm pack --dry-run
+      - run: npm run dogfood:dist
+
+  pi-compat:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 0.80.0 未发布；用已发布下限 0.80.1 代表 peer 底线
+        pi:
+          - '0.80.1'
+          - 'lockfile'
+          - 'latest-0.8x'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.pi }}" = "lockfile" ]; then
+            npm ci
+          elif [ "${{ matrix.pi }}" = "latest-0.8x" ]; then
+            npm ci
+            npm install --no-save '@earendil-works/pi-coding-agent@>=0.80.0 <0.90.0'
+          else
+            npm ci
+            npm install --no-save "@earendil-works/pi-coding-agent@${{ matrix.pi }}"
+          fi
+          node -p "require('@earendil-works/pi-coding-agent/package.json').version"
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run dogfood:runtime
       - run: npm run dogfood:dist

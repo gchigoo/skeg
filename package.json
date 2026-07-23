@@ -1,6 +1,6 @@
 {
   "name": "@gchigoo/skeg",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Minimal engineering workflow for coding agents. Stay light. Hold course.",
   "type": "module",
   "keywords": [
@@ -10,13 +10,18 @@
   ],
   "license": "MIT",
   "exports": {
-    "./provider-api": "./src/provider-api.ts",
+    "./provider-api": {
+      "types": "./dist/provider-api.d.ts",
+      "import": "./dist/provider-api.js"
+    },
+    "./package.json": "./package.json",
     "./*": "./*"
   },
   "bin": {
     "skeg-provider-test": "./scripts/provider-test.mjs"
   },
   "files": [
+    "dist",
     "extensions",
     "prompts",
     "src",
@@ -39,6 +44,8 @@
     ]
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
     "test": "node --experimental-strip-types --test src/**/*.test.ts",
     "dogfood": "node --experimental-strip-types dogfood/run.ts",
     "smoke": "node dogfood/pi-smoke.mjs",
@@ -51,7 +58,7 @@
     "typecheck": "tsc --noEmit",
     "dogfood:dist": "node dogfood/dist-e2e.mjs",
     "verify": "npm test && npm run typecheck && npm run check:budgets && npm run check:providers && npm run dogfood:adversarial && npm run dogfood:runtime && npm run dogfood",
-    "verify:dist": "npm run verify && npm pack --dry-run && npm run dogfood:dist"
+    "verify:dist": "npm run verify && npm run build && npm pack --dry-run && npm run dogfood:dist"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.80.0 <0.90.0"
